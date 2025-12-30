@@ -1,568 +1,201 @@
 <!doctype html>
-
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>AR Healthy Eating</title>
+
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.3/dist/face-landmarks-detection.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+
   <style>
-    body { margin: 0; padding: 0; overflow: hidden; touch-action: none; }
-    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
-    * { font-family: 'Fredoka', 'Comic Sans MS', cursive; }
-
-#videoBackground {
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-  object-fit: cover; transform: scaleX(-1); z-index: 1;
-}
-
-.game-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  z-index: 2; pointer-events: none;
-}
-
-@keyframes fall {
-  from { transform: translateY(-100px); }
-  to { transform: translateY(calc(100vh + 100px)); }
-}
-
-.falling {
-  animation: fall linear forwards; position: absolute; font-size: 48px;
-  z-index: 20; filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.7));
-  pointer-events: none;
-}
-
-.mouth-indicator {
-  position: absolute; width: 120px; height: 120px; border-radius: 50%;
-  border: 5px solid #ef4444; transition: all 0.1s; z-index: 30;
-  background: rgba(239, 68, 68, 0.2); pointer-events: none;
-  display: flex; align-items: center; justify-content: center; font-size: 2.5rem;
-}
-
-.mouth-open {
-  border-color: #10b981 !important; border-width: 8px !important;
-  box-shadow: 0 0 40px rgba(16, 185, 129, 1);
-  background: rgba(16, 185, 129, 0.3) !important;
-  transform: translate(-50%, -50%) scale(1.15) !important;
-}
-
-@keyframes catch-effect {
-  0% { transform: scale(1); opacity: 1; }
-  100% { transform: scale(0); opacity: 0; }
-}
-
-.catch-effect { animation: catch-effect 0.3s ease-out; }
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-}
-
-.pulse { animation: pulse 1s ease-in-out infinite; }
-
-.loading {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  background: rgba(0,0,0,0.95); color: white; padding: 2rem;
-  border-radius: 16px; font-size: 1.2rem; z-index: 10000; text-align: center;
-  max-width: 80%; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-}
-
-.debug-info {
-  position: fixed; top: 80px; right: 5px; background: rgba(0,0,0,0.95);
-  color: white; padding: 10px; border-radius: 8px; font-family: monospace;
-  font-size: 11px; z-index: 100; min-width: 180px; line-height: 1.5;
-  max-width: 200px;
-}
-
+    body { margin:0; overflow:hidden; }
+    #videoBackground {
+      position: fixed; inset:0;
+      width:100vw; height:100vh;
+      object-fit:cover;
+      transform: scaleX(-1);
+      z-index:1;
+    }
+    .game-overlay { position:fixed; inset:0; z-index:2; pointer-events:none; }
+    .falling {
+      position:absolute;
+      font-size:48px;
+      animation: fall linear forwards;
+    }
+    @keyframes fall {
+      from { transform: translateY(-100px); }
+      to { transform: translateY(110vh); }
+    }
+    .mouth-indicator {
+      position:fixed;
+      width:120px; height:120px;
+      border-radius:50%;
+      border:5px solid #ef4444;
+      background:rgba(239,68,68,.25);
+      display:flex; align-items:center; justify-content:center;
+      font-size:2.5rem;
+      transform:translate(-50%,-50%);
+      z-index:30;
+    }
+    .mouth-open {
+      border-color:#10b981;
+      box-shadow:0 0 30px #10b981;
+      background:rgba(16,185,129,.35);
+      transform:translate(-50%,-50%) scale(1.15);
+    }
   </style>
 </head>
+
 <body>
-  <div id="app"></div>
-  <script>
-    let detector, videoStream, model;
-    let state = {
-      screen: 'menu', level: 1, score: 0, healthyCount: 0, junkCount: 0, lives: 3,
-      mouthOpen: false, gameActive: false, fallingItems: [], 
-      mouthX: window.innerWidth / 2, mouthY: window.innerHeight / 2,
-      videoWidth: 640, videoHeight: 480, faceDetected: false,
-      loading: false, mouthDistance: 0, threshold: 15,
-      modelLoaded: false, cameraReady: false
-    };
+<div id="app"></div>
 
-const levels = [
-  { name: "Breakfast", duration: 30, speed: 5 },
-  { name: "Lunch", duration: 40, speed: 4.5 },
-  { name: "Dinner", duration: 50, speed: 4 }
-];
+<script>
+let model, videoStream;
 
-const healthyFoods = ['🍎','🥗','🥦','🥕','🍊','🍇','🥑','🍓'];
-const junkFoods = ['🍔','🍕','🍟','🍩','🍰','🌭'];
+let state = {
+  screen:'menu',
+  gameActive:false,
+  level:1,
+  score:0,
+  lives:3,
+  fallingItems:[],
+  mouthX:window.innerWidth/2,
+  mouthY:window.innerHeight/2,
+  mouthOpen:false,
+  mouthHistory:[],
+  lastCatchTime:0,
+  videoWidth:640,
+  videoHeight:480,
+  modelLoaded:false
+};
+
+const healthyFoods = ['🍎','🍊','🍇','🥦','🥕','🍓'];
+const junkFoods = ['🍔','🍕','🍟'];
 const bombs = ['💣'];
 
-async function setupCamera() {
-  try {
-    state.loading = true;
-    updateLoadingMessage('กำลังเปิดกล้อง...<br>Opening camera...');
-    
-    const constraints = { 
-      video: { 
-        facingMode: 'user',
-        width: { ideal: 640 }, 
-        height: { ideal: 480 }
-      },
-      audio: false
-    };
-    
-    videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-    
-    const video = document.getElementById('videoBackground');
-    video.srcObject = videoStream;
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('autoplay', 'true');
-    
-    await new Promise((resolve) => {
-      video.onloadedmetadata = async () => {
-        await video.play();
-        state.videoWidth = video.videoWidth || 640;
-        state.videoHeight = video.videoHeight || 480;
-        state.cameraReady = true;
-        console.log('✅ Camera ready:', state.videoWidth, 'x', state.videoHeight);
-        resolve();
-      };
-    });
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    updateLoadingMessage('กำลังโหลด AI Model...<br>Loading Face Detection...<br><small>กรุณารอสักครู่</small>');
-    
-    // ใช้ MediaPipe FaceMesh แบบเก่าที่เสถียรกว่า
-    model = await faceLandmarksDetection.load(
-      faceLandmarksDetection.SupportedPackages.mediapipeFacemesh,
-      { maxFaces: 1 }
-    );
-    
-    state.modelLoaded = true;
-    console.log('✅ Model loaded');
-    
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    state.loading = false;
-    removeLoadingMessage();
-    
-    console.log('✅ Starting detection');
-    detectMouth();
-    
-  } catch (e) {
-    console.error('❌ Setup Error:', e);
-    state.loading = false;
-    removeLoadingMessage();
-    alert('ไม่สามารถเปิดกล้องได้\n\nกรุณา:\n1. อนุญาตการใช้กล้อง\n2. Refresh หน้าเว็บ\n3. ลองใช้ Chrome');
-    endGame();
-  }
-}
-
-function updateLoadingMessage(msg) {
-  let loading = document.getElementById('loadingMessage');
-  if (!loading) {
-    loading = document.createElement('div');
-    loading.id = 'loadingMessage';
-    loading.className = 'loading';
-    document.body.appendChild(loading);
-  }
-  loading.innerHTML = msg;
-}
-
-function removeLoadingMessage() {
-  const loading = document.getElementById('loadingMessage');
-  if (loading) loading.remove();
-}
-
-async function detectMouth() {
-  if (!state.gameActive) return;
-  
-  const video = document.getElementById('videoBackground');
-  
-  if (!video || video.readyState < 2) {
-    setTimeout(() => detectMouth(), 100);
-    return;
-  }
-
-  if (!model || !state.modelLoaded) {
-    setTimeout(() => detectMouth(), 100);
-    return;
-  }
-
-  try {
-    const predictions = await model.estimateFaces({ input: video });
-    
-    if (predictions && predictions.length > 0) {
-      state.faceDetected = true;
-      const mesh = predictions[0].scaledMesh;
-      
-      // MediaPipe landmarks (แบบเก่า)
-      // 13 = upper lip, 14 = lower lip
-      // 61 = left mouth, 291 = right mouth
-      const upperLip = mesh[13];
-      const lowerLip = mesh[14];
-      const leftMouth = mesh[61];
-      const rightMouth = mesh[291];
-      
-      const mouthHeight = Math.abs(lowerLip[1] - upperLip[1]);
-      const mouthWidth = Math.abs(rightMouth[0] - leftMouth[0]);
-      
-      state.mouthDistance = mouthHeight;
-      
-      // ปรับ threshold ให้เหมาะกับขนาดปาก
-      const dynamicThreshold = Math.max(mouthWidth * 0.08, 8);
-      state.threshold = dynamicThreshold;
-      
-      // เช็คว่าปากอ้าหรือไม่
-      state.mouthOpen = mouthHeight > dynamicThreshold;
-      
-      // คำนวณตำแหน่งปาก
-      const mouthCenterX = (leftMouth[0] + rightMouth[0]) / 2;
-      const mouthCenterY = (upperLip[1] + lowerLip[1]) / 2;
-      
-      const videoRect = video.getBoundingClientRect();
-      const scaleX = videoRect.width / state.videoWidth;
-      const scaleY = videoRect.height / state.videoHeight;
-      
-      state.mouthX = videoRect.width - (mouthCenterX * scaleX);
-      state.mouthY = (mouthCenterY * scaleY);
-      
-      updateMouthIndicator();
-      checkFoodCatch();
-      updateDebugInfo(mouthHeight, dynamicThreshold);
-      
-    } else {
-      state.faceDetected = false;
-      state.mouthOpen = false;
-      updateDebugInfo(0, state.threshold);
-    }
-    
-  } catch (e) {
-    console.error('❌ Detection error:', e);
-    updateDebugInfo(0, state.threshold);
-  }
-
-  if (state.gameActive) {
-    setTimeout(() => detectMouth(), 100);
-  }
-}
-
-function updateDebugInfo(distance, threshold) {
-  let debug = document.getElementById('debugInfo');
-  if (!debug) {
-    debug = document.createElement('div');
-    debug.id = 'debugInfo';
-    debug.className = 'debug-info';
-    document.body.appendChild(debug);
-  }
-  
-  debug.innerHTML = `
-    <div style="color: ${state.faceDetected ? '#0f0' : '#f00'}; font-weight: bold; margin-bottom: 4px; font-size: 13px;">
-      Face: ${state.faceDetected ? '✅' : '❌ NOT FOUND'}
-    </div>
-    <div style="font-size: 10px;">Height: <span style="color: #0ff">${distance.toFixed(1)}</span></div>
-    <div style="font-size: 10px;">Threshold: <span style="color: #ff0">${threshold.toFixed(1)}</span></div>
-    <div style="margin: 6px 0; padding: 6px; background: rgba(0,0,0,0.5); border-radius: 4px;">
-      <div style="color: ${state.mouthOpen ? '#0f0' : '#f00'}; font-weight: bold; font-size: 14px;">
-        ${state.mouthOpen ? 'OPEN ✓' : 'CLOSED'}
-      </div>
-    </div>
-    <div style="font-size: 9px; color: #888;">
-      Cam: ${state.cameraReady ? '✓' : '✗'}
-      AI: ${state.modelLoaded ? '✓' : '✗'}
-    </div>
-    <div style="font-size: 10px; color: #0ff; margin-top: 4px;">
-      💡 อ้าปากกว้าง!
-    </div>
-  `;
-}
-
-function updateMouthIndicator() {
-  const ind = document.getElementById('mouthIndicator');
-  if (!ind) return;
-  
-  ind.style.left = state.mouthX + 'px';
-  ind.style.top = state.mouthY + 'px';
-  ind.style.transform = 'translate(-50%, -50%)';
-  
-  if (state.mouthOpen) {
-    ind.className = 'mouth-indicator mouth-open';
-    ind.textContent = '😮';
+function render(){
+  const app = document.getElementById('app');
+  if(state.screen==='menu'){
+    app.innerHTML = `
+      <div style="height:100vh;display:flex;align-items:center;justify-content:center;">
+        <button onclick="startGame()" style="font-size:2rem;">▶️ เริ่มเกม</button>
+      </div>`;
   } else {
-    ind.className = 'mouth-indicator';
-    ind.textContent = '😐';
+    app.innerHTML = `
+      <video id="videoBackground" autoplay playsinline></video>
+      <div class="game-overlay" id="gameOverlay"></div>
+      <div id="mouthIndicator" class="mouth-indicator">😐</div>`;
   }
 }
 
-function checkFoodCatch() {
-  if (!state.mouthOpen) return;
-  
-  state.fallingItems.forEach(item => {
-    if (item.caught) return;
-    const el = document.getElementById('food-' + item.id);
-    if (!el) return;
-    
-    const rect = el.getBoundingClientRect();
-    const dx = rect.left + rect.width/2 - state.mouthX;
-    const dy = rect.top + rect.height/2 - state.mouthY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    
-    if (dist < 100) catchFood(item, el);
+async function startGame(){
+  state.screen='game';
+  state.gameActive=true;
+  render();
+  await setupCamera();
+  spawnFood();
+  detectMouth();
+}
+
+async function setupCamera(){
+  videoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+  const video = document.getElementById('videoBackground');
+  video.srcObject = videoStream;
+  await video.play();
+  state.videoWidth = video.videoWidth;
+  state.videoHeight = video.videoHeight;
+
+  model = await faceLandmarksDetection.load(
+    faceLandmarksDetection.SupportedPackages.mediapipeFacemesh,
+    {maxFaces:1}
+  );
+  state.modelLoaded = true;
+}
+
+async function detectMouth(){
+  if(!state.gameActive) return;
+
+  const video = document.getElementById('videoBackground');
+  const preds = await model.estimateFaces({input:video});
+
+  if(preds.length){
+    const m = preds[0].scaledMesh;
+    const upper = m[13];
+    const lower = m[14];
+    const left = m[61];
+    const right = m[291];
+
+    const height = Math.abs(lower[1]-upper[1]);
+    const width = Math.abs(right[0]-left[0]);
+
+    state.mouthHistory.push(height);
+    if(state.mouthHistory.length>5) state.mouthHistory.shift();
+    const avg = state.mouthHistory.reduce((a,b)=>a+b,0)/state.mouthHistory.length;
+
+    const threshold = Math.max(width*0.12,12);
+    state.mouthOpen = avg > threshold;
+
+    const rect = video.getBoundingClientRect();
+    const sx = rect.width/state.videoWidth;
+    const sy = rect.height/state.videoHeight;
+
+    state.mouthX = rect.left + (rect.width - ((left[0]+right[0])/2)*sx);
+    state.mouthY = rect.top + ((upper[1]+lower[1])/2)*sy;
+
+    updateMouth();
+    checkCatch();
+  }
+
+  setTimeout(detectMouth,100);
+}
+
+function updateMouth(){
+  const el = document.getElementById('mouthIndicator');
+  el.style.left = state.mouthX+'px';
+  el.style.top = state.mouthY+'px';
+  el.className = 'mouth-indicator'+(state.mouthOpen?' mouth-open':'');
+  el.textContent = state.mouthOpen?'😮':'😐';
+}
+
+function spawnFood(){
+  if(!state.gameActive) return;
+  const emoji = Math.random()<0.7
+    ? healthyFoods[Math.floor(Math.random()*healthyFoods.length)]
+    : junkFoods[Math.floor(Math.random()*junkFoods.length)];
+
+  const id = Date.now();
+  const el = document.createElement('div');
+  el.id='food-'+id;
+  el.className='falling';
+  el.textContent=emoji;
+  el.style.left=Math.random()*80+10+'%';
+  el.style.animationDuration='5s';
+
+  document.getElementById('gameOverlay').appendChild(el);
+  state.fallingItems.push({id,el});
+
+  setTimeout(()=>spawnFood(),1800);
+}
+
+function checkCatch(){
+  if(!state.mouthOpen) return;
+  const now = Date.now();
+  if(now-state.lastCatchTime<400) return;
+
+  state.fallingItems.forEach(item=>{
+    const r = item.el.getBoundingClientRect();
+    const dx = r.left+r.width/2 - state.mouthX;
+    const dy = r.top+r.height/2 - state.mouthY;
+    if(Math.hypot(dx,dy)<130){
+      item.el.remove();
+      state.lastCatchTime = now;
+    }
   });
 }
 
-function catchFood(item, el) {
-  item.caught = true;
-  el.classList.add('catch-effect');
-  
-  const effect = document.createElement('div');
-  effect.style.cssText = `position:fixed; left:${state.mouthX}px; top:${state.mouthY}px; 
-    transform:translate(-50%,-50%); font-size:48px; z-index:1000; pointer-events:none;`;
-  
-  if (item.type === 'bomb') {
-    effect.textContent = '💥';
-    state.lives--;
-    if (state.lives <= 0) setTimeout(() => endGame(), 500);
-  } else if (item.type === 'healthy') {
-    effect.textContent = '✨';
-    state.score += 10;
-    state.healthyCount++;
-  } else {
-    effect.textContent = '⭐';
-    state.score += 5;
-    state.junkCount++;
-  }
-  
-  document.body.appendChild(effect);
-  setTimeout(() => {
-    effect.style.transition = 'all 0.4s';
-    effect.style.opacity = '0';
-    effect.style.transform = 'translate(-50%, -50%) scale(2)';
-  }, 50);
-  setTimeout(() => {
-    effect.remove();
-    if (el.parentNode) el.remove();
-  }, 500);
-  
-  updateUI();
-}
-
-function startGame(level) {
-  state = { ...state, level, score: 0, healthyCount: 0, junkCount: 0, lives: 3, 
-            gameActive: true, fallingItems: [], screen: 'game', 
-            mouthOpen: false, faceDetected: false, cameraReady: false, modelLoaded: false };
-  render();
-  setupCamera();
-  setTimeout(() => {
-    if (state.gameActive && state.modelLoaded) {
-      spawnFood();
-      startTimer();
-    }
-  }, 3000);
-}
-
-function spawnFood() {
-  if (!state.gameActive) return;
-  
-  const lvl = levels[state.level - 1];
-  const rand = Math.random();
-  
-  let food, type;
-  if (rand < 0.55) {
-    food = healthyFoods[Math.floor(Math.random() * healthyFoods.length)];
-    type = 'healthy';
-  } else if (rand < 0.9) {
-    food = junkFoods[Math.floor(Math.random() * junkFoods.length)];
-    type = 'junk';
-  } else {
-    food = bombs[0];
-    type = 'bomb';
-  }
-  
-  const item = { id: Date.now() + Math.random(), emoji: food, type, 
-                 x: Math.random() * 60 + 20, caught: false };
-  state.fallingItems.push(item);
-  
-  const overlay = document.getElementById('gameOverlay');
-  if (!overlay) return;
-  
-  const foodEl = document.createElement('div');
-  foodEl.id = 'food-' + item.id;
-  foodEl.className = 'falling';
-  foodEl.style.left = item.x + '%';
-  foodEl.style.animationDuration = lvl.speed + 's';
-  foodEl.textContent = item.emoji;
-  overlay.appendChild(foodEl);
-  
-  setTimeout(() => {
-    if (foodEl.parentNode) foodEl.remove();
-    state.fallingItems = state.fallingItems.filter(i => i.id !== item.id);
-  }, lvl.speed * 1000);
-  
-  setTimeout(() => spawnFood(), 2000);
-}
-
-function startTimer() {
-  const lvl = levels[state.level - 1];
-  let time = lvl.duration;
-  
-  const timer = setInterval(() => {
-    if (!state.gameActive) return clearInterval(timer);
-    time--;
-    const el = document.getElementById('timer');
-    if (el) el.textContent = '⏱️ ' + time + 's';
-    if (time <= 0) { clearInterval(timer); endGame(); }
-  }, 1000);
-}
-
-function endGame() {
-  state.gameActive = false;
-  if (videoStream) videoStream.getTracks().forEach(t => t.stop());
-  
-  const overlay = document.getElementById('gameOverlay');
-  if (overlay) {
-    state.fallingItems.forEach(item => {
-      const el = document.getElementById('food-' + item.id);
-      if (el) el.remove();
-    });
-  }
-  
-  const debug = document.getElementById('debugInfo');
-  if (debug) debug.remove();
-  
-  state.fallingItems = [];
-  state.screen = 'result';
-  render();
-}
-
-function updateUI() {
-  const s = document.getElementById('score');
-  const l = document.getElementById('lives');
-  if (s) s.textContent = '🏆 ' + state.score;
-  if (l) l.textContent = '❤️ ' + state.lives;
-}
-
-function render() {
-  const app = document.getElementById('app');
-  
-  if (state.screen === 'menu') {
-    app.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                  width: 100vw; height: 100vh; display: flex; align-items: center; 
-                  justify-content: center; padding: 1.5rem; overflow-y: auto;">
-        <div style="background: white; border-radius: 20px; padding: 2rem; 
-                    max-width: 500px; text-align: center; box-shadow: 0 15px 50px rgba(0,0,0,0.3);">
-          <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 0.5rem;" class="pulse">
-            🍎 AR Healthy 🥗
-          </h1>
-          <p style="font-size: 1rem; margin-bottom: 1.5rem; color: #666;">
-            ใช้ปากจริงจับอาหาร!
-          </p>
-          <div style="background: rgba(239,68,68,0.1); border: 2px solid #ef4444; 
-                      border-radius: 10px; padding: 1rem; margin-bottom: 1rem;">
-            <p style="font-size: 1.1rem; font-weight: bold; color: #ef4444;">
-              ⚠️ อ้าปากกว้างๆ!
-            </p>
-            <p style="margin-top: 0.3rem; font-size: 0.9rem;">ดู Debug มุมขวาบน</p>
-          </div>
-          <div style="background: rgba(16,185,129,0.1); border: 2px solid #10b981; 
-                      border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; text-align: left;">
-            <p style="font-size: 1.1rem; font-weight: bold; text-align: center; margin-bottom: 0.3rem;">
-              💡 วิธีเล่น
-            </p>
-            <p style="margin: 0.3rem 0; font-size: 0.9rem;">😮 วงเขียว = พร้อม</p>
-            <p style="margin: 0.3rem 0; font-size: 0.9rem;">🍎 +10 | 🍔 +5 | 💣 -1❤️</p>
-          </div>
-          ${levels.map((l, i) => `
-            <button onclick="startGame(${i+1})" 
-              style="width: 100%; padding: 0.9rem 1.5rem; margin: 0.4rem 0; 
-                     font-size: 1.1rem; font-weight: bold; border-radius: 10px; 
-                     border: none; color: white; cursor: pointer;
-                     background: linear-gradient(135deg, ${i === 0 ? '#10b981, #059669' : i === 1 ? '#8b5cf6, #7c3aed' : '#f59e0b, #d97706'});">
-              Level ${i+1}: ${l.name}
-            </button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  } else if (state.screen === 'game') {
-    app.innerHTML = `
-      <video id="videoBackground" autoplay muted playsinline webkit-playsinline></video>
-      <div id="gameOverlay" class="game-overlay">
-        <div style="position: fixed; top: 0.5rem; left: 0.5rem; z-index: 50; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <div id="score" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">🏆 0</div>
-          <div id="lives" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">❤️ 3</div>
-          <div id="timer" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">
-            ⏱️ ${levels[state.level-1].duration}s
-          </div>
-        </div>
-        <div id="mouthIndicator" class="mouth-indicator">😐</div>
-        <div style="position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); 
-                    background: rgba(0,0,0,0.9); color: white; padding: 1rem 2rem; 
-                    border-radius: 10px; font-size: 1.3rem; font-weight: bold; z-index: 50;">
-          😮 อ้าปาก!
-        </div>
-      </div>
-    `;
-  } else {
-    const total = state.healthyCount + state.junkCount || 1;
-    const ratio = state.healthyCount / total;
-    const emoji = ratio > 0.7 ? '💪😊' : ratio > 0.4 ? '😐' : '😰';
-    const msg = ratio > 0.7 ? 'เยี่ยม!' : ratio > 0.4 ? 'พอใช้' : 'ลองใหม่';
-    
-    app.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea, #764ba2); 
-                  width: 100vw; height: 100vh; display: flex; align-items: center; 
-                  justify-content: center; padding: 1.5rem; overflow-y: auto;">
-        <div style="background: white; border-radius: 20px; padding: 2rem; 
-                    max-width: 500px; text-align: center;">
-          <div style="font-size: 5rem;" class="pulse">${emoji}</div>
-          <h2 style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">จบเกม!</h2>
-          <h3 style="font-size: 1.5rem; color: #10b981; margin-bottom: 1.5rem;">${msg}</h3>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1.5rem;">
-            <div style="background: rgba(102,126,234,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🏆</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.score}</div>
-              <div style="font-size: 0.9rem;">คะแนน</div>
-            </div>
-            <div style="background: rgba(16,185,129,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🍎</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.healthyCount}</div>
-              <div style="font-size: 0.9rem;">อาหารดี</div>
-            </div>
-            <div style="background: rgba(245,158,11,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🍔</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.junkCount}</div>
-              <div style="font-size: 0.9rem;">ขยะ</div>
-            </div>
-            <div style="background: rgba(139,92,246,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">📊</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${Math.round(ratio*100)}%</div>
-              <div style="font-size: 0.9rem;">ดี</div>
-            </div>
-          </div>
-          <button onclick="state.screen='menu'; render();" 
-            style="width: 100%; padding: 1rem 2rem; font-size: 1.3rem; font-weight: bold; 
-                   background: linear-gradient(135deg, #10b981, #059669); color: white; 
-                   border: none; border-radius: 10px; cursor: pointer;">
-            🏠 เมนู
-          </button>
-        </div>
-      </div>
-    `;
-  }
-}
-
 render();
-
-  </script>
+</script>
 </body>
 </html>
