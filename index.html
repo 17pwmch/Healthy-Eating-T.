@@ -73,7 +73,16 @@
     
     .mouth-open {
       background: #10b981 !important;
-      transform: scale(1.2);
+      transform: scale(1.3);
+      box-shadow: 0 0 30px #10b981;
+    }
+
+    .debug-info {
+      font-size: 14px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 8px;
+      border-radius: 8px;
     }
   </style>
  </head>
@@ -82,7 +91,7 @@
   <script>
     const defaultConfig = {
       game_title: "🍎 Healthy Eating Challenge 🥗",
-      instruction_text: "Open your mouth to catch food! Choose healthy foods to stay fit!",
+      instruction_text: "Open your mouth WIDE to catch food! Choose healthy foods to stay fit!",
       background_color: "#667eea",
       surface_color: "#ffffff",
       text_color: "#1f2937",
@@ -103,15 +112,17 @@
       mouthOpen: false,
       gameActive: false,
       playerName: '',
-      fallingItems: []
+      fallingItems: [],
+      mouthDistance: 0,
+      faceDetected: false
     };
 
     const levels = [
-      { name: "Breakfast Challenge", duration: 30, speed: 3 },
-      { name: "Lunch Rush", duration: 40, speed: 4 },
-      { name: "Dinner Dash", duration: 50, speed: 5 },
-      { name: "Midnight Snack", duration: 60, speed: 6 },
-      { name: "Ultimate Food Master", duration: 90, speed: 7 }
+      { name: "Breakfast Challenge", duration: 30, speed: 4 },
+      { name: "Lunch Rush", duration: 40, speed: 3.5 },
+      { name: "Dinner Dash", duration: 50, speed: 3 },
+      { name: "Midnight Snack", duration: 60, speed: 2.5 },
+      { name: "Ultimate Food Master", duration: 90, speed: 2 }
     ];
 
     const healthyFoods = ['🍎', '🥗', '🥦', '🥕', '🍊', '🍇', '🥑', '🍓'];
@@ -146,7 +157,7 @@
           
           detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
           
-          showToast('✅ พร้อมเล่น! / Ready to play!', 'success');
+          showToast('✅ อ้าปากให้กว้าง! / Open mouth WIDE!', 'success');
           detectMouth();
         }
       } catch (error) {
@@ -168,35 +179,37 @@
         const faces = await detector.estimateFaces(video);
         
         if (faces.length > 0) {
+          gameState.faceDetected = true;
           const keypoints = faces[0].keypoints;
           
-          // ใช้ keypoints จาก MediaPipe FaceMesh
-          // Upper lip: index 13, Lower lip: index 14
-          const upperLip = keypoints.find(kp => kp.name === 'upperLip' || kp.name === 'lipUpperOuter');
-          const lowerLip = keypoints.find(kp => kp.name === 'lowerLip' || kp.name === 'lipLowerOuter');
+          // ใช้จุดบนริมฝีปากบนและล่าง
+          const upperLip = keypoints[13]; // Upper lip
+          const lowerLip = keypoints[14]; // Lower lip
           
-          // ถ้าไม่เจอ keypoint ที่ต้องการ ใช้ index แทน
-          const upperLipPoint = upperLip || keypoints[13];
-          const lowerLipPoint = lowerLip || keypoints[14];
-          
-          if (upperLipPoint && lowerLipPoint) {
-            const mouthOpenDistance = Math.abs(lowerLipPoint.y - upperLipPoint.y);
+          if (upperLip && lowerLip) {
+            const mouthOpenDistance = Math.abs(lowerLip.y - upperLip.y);
+            gameState.mouthDistance = Math.round(mouthOpenDistance);
             
             const wasClosed = !gameState.mouthOpen;
-            gameState.mouthOpen = mouthOpenDistance > 20;
+            // ลดค่า threshold ให้ตรวจจับง่ายขึ้น
+            gameState.mouthOpen = mouthOpenDistance > 12;
             
             const indicator = document.getElementById('mouthIndicator');
             if (indicator) {
               if (gameState.mouthOpen) {
                 indicator.classList.add('mouth-open');
-                if (wasClosed) {
-                  checkFoodCatch();
-                }
+                // ตรวจจับอาหารทุกครั้งที่ปากเปิด
+                checkFoodCatch();
               } else {
                 indicator.classList.remove('mouth-open');
               }
             }
+            
+            // Update debug info
+            updateDebugInfo();
           }
+        } else {
+          gameState.faceDetected = false;
         }
       } catch (error) {
         console.error('Face detection error:', error);
@@ -207,30 +220,51 @@
       }
     }
 
+    function updateDebugInfo() {
+      const debugEl = document.getElementById('debugInfo');
+      if (debugEl) {
+        debugEl.innerHTML = `
+          Face: ${gameState.faceDetected ? '✅' : '❌'} | 
+          Mouth: ${gameState.mouthDistance}px ${gameState.mouthOpen ? '😮 OPEN' : '😐 closed'} | 
+          Items: ${gameState.fallingItems.filter(i => !i.caught).length}
+        `;
+      }
+    }
+
     function checkFoodCatch() {
+      if (!gameState.mouthOpen) return;
+
       const catchZone = document.getElementById('catchZone');
       if (!catchZone) return;
 
       const catchRect = catchZone.getBoundingClientRect();
-      const catchY = catchRect.top + catchRect.height / 2;
+      const catchZoneTop = catchRect.top;
+      const catchZoneBottom = catchRect.bottom;
+      const catchZoneLeft = catchRect.left;
+      const catchZoneRight = catchRect.right;
 
-      gameState.fallingItems.forEach((item, index) => {
+      gameState.fallingItems.forEach((item) => {
+        if (item.caught) return;
+
         const element = document.getElementById(`food-${item.id}`);
-        if (!element || item.caught) return;
+        if (!element) return;
 
         const rect = element.getBoundingClientRect();
-        const itemY = rect.top + rect.height / 2;
+        const itemCenterY = rect.top + rect.height / 2;
+        const itemCenterX = rect.left + rect.width / 2;
 
-        if (Math.abs(itemY - catchY) < 80 && 
-            rect.left < catchRect.right && 
-            rect.right > catchRect.left) {
-          
+        // ตรวจสอบว่าอาหารอยู่ในโซนจับหรือไม่ (ขยายโซนให้กว้างขึ้น)
+        const verticalOverlap = itemCenterY >= catchZoneTop - 50 && itemCenterY <= catchZoneBottom + 50;
+        const horizontalOverlap = itemCenterX >= catchZoneLeft - 50 && itemCenterX <= catchZoneRight + 50;
+
+        if (verticalOverlap && horizontalOverlap) {
           item.caught = true;
           element.style.display = 'none';
 
           if (item.type === 'bomb') {
             gameState.lives--;
             showToast('💥 โดนระเบิด! / Hit a bomb!', 'error');
+            playSound('bomb');
             if (gameState.lives <= 0) {
               endGame();
             }
@@ -238,15 +272,44 @@
             gameState.score += 10;
             gameState.healthyCount++;
             showToast('✨ อาหารดี! +10', 'success');
+            playSound('success');
           } else {
             gameState.score += 5;
             gameState.junkCount++;
             showToast('🍔 อาหารขยะ +5', 'warning');
+            playSound('junk');
           }
 
           updateGameUI();
         }
       });
+    }
+
+    function playSound(type) {
+      // สร้างเสียง feedback แบบง่าย ๆ
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      if (type === 'success') {
+        oscillator.frequency.value = 800;
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+      } else if (type === 'bomb') {
+        oscillator.frequency.value = 100;
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      } else {
+        oscillator.frequency.value = 400;
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+      }
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
     }
 
     function startGame(level) {
@@ -269,8 +332,18 @@
       if (!gameState.gameActive) return;
 
       const levelData = levels[gameState.level - 1];
-      const allFoods = [...healthyFoods, ...junkFoods, ...bombs];
-      const randomFood = allFoods[Math.floor(Math.random() * allFoods.length)];
+      
+      // สุ่มอาหาร โดยให้โอกาสระเบิดน้อยลง
+      const rand = Math.random();
+      let randomFood;
+      
+      if (rand < 0.5) {
+        randomFood = healthyFoods[Math.floor(Math.random() * healthyFoods.length)];
+      } else if (rand < 0.85) {
+        randomFood = junkFoods[Math.floor(Math.random() * junkFoods.length)];
+      } else {
+        randomFood = bombs[0];
+      }
       
       let type = 'healthy';
       if (junkFoods.includes(randomFood)) type = 'junk';
@@ -280,7 +353,7 @@
         id: Date.now() + Math.random(),
         emoji: randomFood,
         type: type,
-        x: Math.random() * 80 + 10,
+        x: Math.random() * 70 + 15, // ให้อาหารตกในพื้นที่กลางมากขึ้น
         caught: false
       };
 
@@ -295,9 +368,10 @@
           position: absolute;
           left: ${item.x}%;
           top: -100px;
-          font-size: 48px;
+          font-size: 56px;
           z-index: 10;
           animation-duration: ${levelData.speed}s;
+          filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.5));
         `;
         foodEl.textContent = item.emoji;
         gameArea.appendChild(foodEl);
@@ -306,10 +380,16 @@
           if (foodEl.parentNode) {
             foodEl.remove();
           }
+          // ลบ item ออกจาก array
+          const index = gameState.fallingItems.indexOf(item);
+          if (index > -1) {
+            gameState.fallingItems.splice(index, 1);
+          }
         }, levelData.speed * 1000);
       }
 
-      setTimeout(() => spawnFoodItems(), 1500 / levelData.speed);
+      // ปรับความถี่การปล่อยอาหาร
+      setTimeout(() => spawnFoodItems(), 1200 / Math.sqrt(levelData.speed));
     }
 
     function startGameTimer() {
@@ -356,7 +436,7 @@
 
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
-      toast.className = 'fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 font-bold';
+      toast.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg z-50 font-bold';
       toast.style.cssText = `
         background: ${type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#f59e0b'};
         color: white;
@@ -396,6 +476,12 @@
               <h1 class="text-6xl font-bold mb-6 pulse" style="color: ${textColor};">${config.game_title}</h1>
               <p class="text-xl mb-8" style="color: ${textColor};">${config.instruction_text}</p>
               
+              <div class="mb-6 p-4 rounded-xl" style="background: ${primaryColor}20; border: 2px solid ${primaryColor};">
+                <p class="text-lg font-bold" style="color: ${textColor};">💡 วิธีเล่น / How to Play:</p>
+                <p style="color: ${textColor};">อ้าปากให้กว้าง 😮 เมื่ออาหารผ่านวงกลม</p>
+                <p style="color: ${textColor};">Open mouth WIDE when food passes the circle!</p>
+              </div>
+              
               <input 
                 type="text" 
                 id="playerNameInput" 
@@ -407,7 +493,7 @@
               <div class="space-y-4">
                 ${levels.map((level, index) => `
                   <button 
-                    onclick="gameState.playerName = document.getElementById('playerNameInput').value; startGame(${index + 1})"
+                    onclick="gameState.playerName = document.getElementById('playerNameInput').value || 'Player'; startGame(${index + 1})"
                     class="w-full px-8 py-4 text-xl font-bold rounded-xl transition-all hover:scale-105"
                     style="background: ${index === 0 ? primaryColor : secondaryColor}; color: white;"
                   >
@@ -422,21 +508,29 @@
         app.innerHTML = `
           <div class="game-container w-full h-full relative" style="background: ${bgColor};">
             <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-20">
-              <div class="flex gap-4">
+              <div class="flex gap-4 flex-wrap">
                 <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="score">🏆 0</div>
                 <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="lives">❤️ 3</div>
                 <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="timer">⏱️ ${levels[gameState.level - 1].duration}s</div>
               </div>
             </div>
 
+            <div class="absolute top-20 left-4 z-20 debug-info" id="debugInfo">
+              Loading...
+            </div>
+
             <div id="gameArea" class="w-full h-full relative">
-              <div id="catchZone" class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full flex items-center justify-center z-30" style="background: ${primaryColor}40; border: 4px dashed ${primaryColor};">
-                <div id="mouthIndicator" class="w-16 h-16 rounded-full mouth-indicator transition-all" style="background: ${secondaryColor};"></div>
+              <div id="catchZone" class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-40 h-40 rounded-full flex items-center justify-center z-30" style="background: ${primaryColor}30; border: 4px dashed ${primaryColor};">
+                <div id="mouthIndicator" class="w-20 h-20 rounded-full mouth-indicator transition-all" style="background: ${secondaryColor};"></div>
               </div>
             </div>
 
             <div class="absolute bottom-4 right-4 z-20">
-              <video id="videoElement" width="200" height="150" autoplay muted playsinline class="rounded-xl shadow-lg" style="border: 4px solid ${surfaceColor};"></video>
+              <video id="videoElement" width="240" height="180" autoplay muted playsinline class="rounded-xl shadow-lg" style="border: 4px solid ${surfaceColor};"></video>
+            </div>
+
+            <div class="absolute bottom-4 left-4 z-20 px-4 py-2 rounded-lg text-white font-bold" style="background: rgba(0,0,0,0.6);">
+              😮 อ้าปากให้กว้าง!<br>Open WIDE!
             </div>
           </div>
         `;
