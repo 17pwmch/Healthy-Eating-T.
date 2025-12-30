@@ -54,21 +54,22 @@
 
 .mouth-indicator {
   position: absolute;
-  width: 120px;
-  height: 120px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
-  border: 5px solid #6b7280;
-  transition: all 0.1s;
+  border: 5px solid #ef4444;
+  transition: all 0.15s;
   z-index: 30;
-  background: rgba(107, 114, 128, 0.1);
+  background: rgba(239, 68, 68, 0.15);
   pointer-events: none;
 }
 
 .mouth-open {
   border-color: #10b981 !important;
-  border-width: 6px !important;
-  box-shadow: 0 0 40px rgba(16, 185, 129, 0.8);
-  background: rgba(16, 185, 129, 0.2) !important;
+  border-width: 8px !important;
+  box-shadow: 0 0 50px rgba(16, 185, 129, 1);
+  background: rgba(16, 185, 129, 0.3) !important;
+  transform: translate(-50%, -50%) scale(1.1) !important;
 }
 
 @keyframes catch-effect {
@@ -90,12 +91,27 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.9);
   color: white;
   padding: 2rem;
   border-radius: 12px;
   font-size: 1.5rem;
   z-index: 100;
+  text-align: center;
+}
+
+.debug-info {
+  position: fixed;
+  top: 100px;
+  right: 10px;
+  background: rgba(0,0,0,0.8);
+  color: #0f0;
+  padding: 10px;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 12px;
+  z-index: 100;
+  max-width: 200px;
 }
 
   </style>
@@ -103,7 +119,7 @@
 <body>
   <div id="app"></div>
   <script>
-    let detector, videoStream;
+    let detector, videoStream, detectionLoop;
     let state = {
       screen: 'menu', 
       level: 1, 
@@ -119,7 +135,9 @@
       videoWidth: 640, 
       videoHeight: 480, 
       faceDetected: false,
-      loading: false
+      loading: false,
+      mouthDistance: 0,
+      debug: true
     };
 
 const levels = [
@@ -135,11 +153,11 @@ const bombs = ['💣'];
 async function setupCamera() {
   try {
     state.loading = true;
-    updateLoadingMessage('กำลังเปิดกล้อง...');
+    updateLoadingMessage('กำลังเปิดกล้อง...<br>Opening camera...');
     
     videoStream = await navigator.mediaDevices.getUserMedia({ 
       video: { 
-        facingMode: 'user', 
+        facingMode: 'user',
         width: { ideal: 1280 }, 
         height: { ideal: 720 } 
       } 
@@ -151,14 +169,14 @@ async function setupCamera() {
     await new Promise((resolve) => {
       video.onloadedmetadata = () => {
         video.play();
+        state.videoWidth = video.videoWidth;
+        state.videoHeight = video.videoHeight;
+        console.log('Video size:', state.videoWidth, 'x', state.videoHeight);
         resolve();
       };
     });
     
-    state.videoWidth = video.videoWidth || 640;
-    state.videoHeight = video.videoHeight || 480;
-    
-    updateLoadingMessage('กำลังโหลด AI...');
+    updateLoadingMessage('กำลังโหลด AI...<br>Loading AI model...');
     
     const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
     const detectorConfig = {
@@ -168,10 +186,14 @@ async function setupCamera() {
     };
     
     detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
+    console.log('Detector loaded successfully');
     
     state.loading = false;
     removeLoadingMessage();
+    
+    // เริ่มการตรวจจับ
     detectMouth();
+    
   } catch (e) {
     console.error('Camera error:', e);
     state.loading = false;
@@ -188,7 +210,7 @@ function updateLoadingMessage(msg) {
     loading.className = 'loading';
     document.body.appendChild(loading);
   }
-  loading.textContent = msg;
+  loading.innerHTML = msg;
 }
 
 function removeLoadingMessage() {
@@ -197,7 +219,9 @@ function removeLoadingMessage() {
 }
 
 async function detectMouth() {
-  if (!state.gameActive || !detector) return;
+  if (!state.gameActive || !detector) {
+    return;
+  }
   
   const video = document.getElementById('videoBackground');
   if (!video || video.readyState < 2) {
@@ -214,7 +238,9 @@ async function detectMouth() {
       state.faceDetected = true;
       const kp = faces[0].keypoints;
       
-      // ใช้จุดของริมฝีปากบนและล่าง
+      // ใช้จุดริมฝีปากที่แม่นยำ
+      // 13 = upper lip top, 14 = lower lip bottom
+      // 61 = left mouth corner, 291 = right mouth corner
       const upperLip = kp[13];
       const lowerLip = kp[14];
       const leftMouth = kp[61];
@@ -224,23 +250,34 @@ async function detectMouth() {
       const mouthCenterX = (leftMouth.x + rightMouth.x) / 2;
       const mouthCenterY = (upperLip.y + lowerLip.y) / 2;
       
+      // คำนวณระยะห่างปาก (แนวตั้ง)
+      const mouthOpenDistance = Math.abs(lowerLip.y - upperLip.y);
+      state.mouthDistance = mouthOpenDistance;
+      
+      // ตั้งค่า threshold ที่เหมาะสม (ปรับตามขนาดใบหน้า)
+      const mouthWidth = Math.abs(rightMouth.x - leftMouth.x);
+      const threshold = mouthWidth * 0.12; // 12% ของความกว้างปาก
+      
+      state.mouthOpen = mouthOpenDistance > threshold;
+      
       // แปลงพิกัดจากวิดีโอเป็นพิกัดหน้าจอ
       const videoRect = video.getBoundingClientRect();
       const scaleX = videoRect.width / state.videoWidth;
       const scaleY = videoRect.height / state.videoHeight;
       
-      // กลับแกน X เพราะวิดีโอกลับด้าน
+      // กลับแกน X เพราะวิดีโอกลับด้าน (mirror)
       state.mouthX = videoRect.width - (mouthCenterX * scaleX) + videoRect.left;
       state.mouthY = (mouthCenterY * scaleY) + videoRect.top;
       
-      // ตรวจจับการอ้าปาก (ระยะห่างระหว่างริมฝีปากบนล่าง)
-      const mouthOpenDistance = Math.abs(lowerLip.y - upperLip.y);
-      state.mouthOpen = mouthOpenDistance > 15;
-      
       updateMouthIndicator();
       checkFoodCatch();
+      
+      if (state.debug) {
+        updateDebugInfo(mouthOpenDistance, threshold);
+      }
     } else {
       state.faceDetected = false;
+      state.mouthOpen = false;
     }
   } catch (e) {
     console.error('Detection error:', e);
@@ -251,13 +288,37 @@ async function detectMouth() {
   }
 }
 
+function updateDebugInfo(distance, threshold) {
+  let debug = document.getElementById('debugInfo');
+  if (!debug) {
+    debug = document.createElement('div');
+    debug.id = 'debugInfo';
+    debug.className = 'debug-info';
+    document.body.appendChild(debug);
+  }
+  
+  debug.innerHTML = `
+    Face: ${state.faceDetected ? '✓' : '✗'}<br>
+    Mouth Dist: ${distance.toFixed(1)}<br>
+    Threshold: ${threshold.toFixed(1)}<br>
+    Status: ${state.mouthOpen ? '<span style="color:#0f0">OPEN ✓</span>' : '<span style="color:#f00">CLOSED</span>'}<br>
+    Position: ${Math.round(state.mouthX)}, ${Math.round(state.mouthY)}
+  `;
+}
+
 function updateMouthIndicator() {
   const ind = document.getElementById('mouthIndicator');
   if (!ind) return;
+  
   ind.style.left = state.mouthX + 'px';
   ind.style.top = state.mouthY + 'px';
   ind.style.transform = 'translate(-50%, -50%)';
-  ind.className = 'mouth-indicator' + (state.mouthOpen ? ' mouth-open' : '');
+  
+  if (state.mouthOpen) {
+    ind.className = 'mouth-indicator mouth-open';
+  } else {
+    ind.className = 'mouth-indicator';
+  }
 }
 
 function checkFoodCatch() {
@@ -276,8 +337,8 @@ function checkFoodCatch() {
     const dy = foodCenterY - state.mouthY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     
-    // เพิ่มระยะจับให้กว้างขึ้น
-    if (dist < 100) {
+    // เพิ่มระยะจับให้กว้างขึ้นเมื่ออ้าปาก
+    if (dist < 120) {
       catchFood(item, el);
     }
   });
@@ -287,24 +348,45 @@ function catchFood(item, el) {
   item.caught = true;
   el.classList.add('catch-effect');
   
-  setTimeout(() => {
-    if (el.parentNode) {
-      el.remove();
-    }
-  }, 300);
+  // สร้างเอฟเฟกต์จับ
+  const effect = document.createElement('div');
+  effect.style.position = 'fixed';
+  effect.style.left = state.mouthX + 'px';
+  effect.style.top = state.mouthY + 'px';
+  effect.style.transform = 'translate(-50%, -50%)';
+  effect.style.fontSize = '48px';
+  effect.style.zIndex = '100';
+  effect.style.pointerEvents = 'none';
   
   if (item.type === 'bomb') {
+    effect.textContent = '💥';
     state.lives--;
     if (state.lives <= 0) {
-      endGame();
+      setTimeout(() => endGame(), 500);
     }
   } else if (item.type === 'healthy') {
+    effect.textContent = '✨';
     state.score += 10;
     state.healthyCount++;
   } else {
+    effect.textContent = '⭐';
     state.score += 5;
     state.junkCount++;
   }
+  
+  document.body.appendChild(effect);
+  
+  setTimeout(() => {
+    effect.style.transition = 'all 0.5s';
+    effect.style.opacity = '0';
+    effect.style.transform = 'translate(-50%, -50%) scale(2)';
+  }, 50);
+  
+  setTimeout(() => {
+    effect.remove();
+    if (el.parentNode) el.remove();
+  }, 600);
+  
   updateUI();
 }
 
@@ -318,18 +400,20 @@ function startGame(level) {
     lives: 3, 
     gameActive: true, 
     fallingItems: [], 
-    screen: 'game' 
+    screen: 'game',
+    mouthOpen: false,
+    faceDetected: false
   };
   render();
   setupCamera();
   
-  // รอให้กล้องพร้อมก่อนเริ่มเกม
+  // รอให้กล้องและ AI พร้อม
   setTimeout(() => {
     if (state.gameActive) {
       spawnFood();
       startTimer();
     }
-  }, 2000);
+  }, 3000);
 }
 
 function spawnFood() {
@@ -354,7 +438,7 @@ function spawnFood() {
     id: Date.now() + Math.random(), 
     emoji: food, 
     type, 
-    x: Math.random() * 80 + 10, 
+    x: Math.random() * 70 + 15, // จำกัดพื้นที่ให้อยู่ตรงกลางมากขึ้น
     caught: false 
   };
   
@@ -378,7 +462,7 @@ function spawnFood() {
     state.fallingItems = state.fallingItems.filter(i => i.id !== item.id);
   }, lvl.speed * 1000);
   
-  const nextSpawnTime = 1200 / Math.sqrt(lvl.speed);
+  const nextSpawnTime = 1500 / Math.sqrt(lvl.speed);
   setTimeout(() => spawnFood(), nextSpawnTime);
 }
 
@@ -421,6 +505,10 @@ function endGame() {
     });
   }
   
+  // ลบ debug info
+  const debug = document.getElementById('debugInfo');
+  if (debug) debug.remove();
+  
   state.fallingItems = [];
   state.screen = 'result';
   render();
@@ -454,9 +542,10 @@ function render() {
             <p style="font-size: 1.3rem; font-weight: bold; margin-bottom: 0.5rem; text-align: center;">
               💡 วิธีเล่น
             </p>
-            <p style="margin: 0.5rem 0;">📹 กล้องเป็นพื้นหลัง</p>
-            <p style="margin: 0.5rem 0;">😮 อ้าปากจับอาหาร</p>
-            <p style="margin: 0.5rem 0;">🎯 วงกลมเขียว = พร้อมจับ!</p>
+            <p style="margin: 0.5rem 0;">📹 กล้องเป็นพื้นหลัง (แบบกระจก)</p>
+            <p style="margin: 0.5rem 0;">😮 <strong>อ้าปากกว้างๆ</strong> เพื่อจับอาหาร</p>
+            <p style="margin: 0.5rem 0;">🔴 วงกลมแดง = ปากปิด</p>
+            <p style="margin: 0.5rem 0;">🟢 วงกลมเขียวใหญ่ = อ้าปากแล้ว!</p>
             <p style="margin: 0.5rem 0;">🍎 อาหารดี = +10 คะแนน</p>
             <p style="margin: 0.5rem 0;">🍔 อาหารขยะ = +5 คะแนน</p>
             <p style="margin: 0.5rem 0;">💣 ระเบิด = -1 ชีวิต</p>
@@ -495,9 +584,9 @@ function render() {
         <div id="mouthIndicator" class="mouth-indicator"></div>
         <div style="position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); 
                     background: rgba(0,0,0,0.85); color: white; padding: 1rem 2rem; 
-                    border-radius: 12px; font-size: 1.2rem; font-weight: bold; z-index: 50;
+                    border-radius: 12px; font-size: 1.3rem; font-weight: bold; z-index: 50;
                     box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-          😮 อ้าปากรับอาหาร! Open your mouth!
+          😮 อ้าปากกว้างๆ! Open WIDE!
         </div>
       </div>
     `;
