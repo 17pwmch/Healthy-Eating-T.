@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="th" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Healthy Eating Challenge</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
+    
+    * {
+      font-family: 'Fredoka', 'Comic Sans MS', cursive, sans-serif;
+    }
+    
+    .game-container {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .food-item {
+      transition: transform 0.3s ease;
+      cursor: pointer;
+    }
+    
+    .food-item:hover {
+      transform: scale(1.1);
+    }
+    
+    @keyframes fall {
+      from {
+        transform: translateY(-100px);
+      }
+      to {
+        transform: translateY(calc(100vh + 100px));
+      }
+    }
+    
+    .falling {
+      animation: fall linear forwards;
+    }
+    
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.05);
+      }
+    }
+    
+    .pulse {
+      animation: pulse 1s ease-in-out infinite;
+    }
+    
+    .character {
+      transition: all 0.5s ease;
+    }
+    
+    #videoElement {
+      transform: scaleX(-1);
+    }
+    
+    .mouth-indicator {
+      transition: all 0.2s ease;
+    }
+    
+    .mouth-open {
+      background: #10b981 !important;
+      transform: scale(1.2);
+    }
+  </style>
+ </head>
+ <body class="h-full m-0 p-0">
+  <div id="app" class="w-full h-full"></div>
+  <script>
+    const defaultConfig = {
+      game_title: "🍎 Healthy Eating Challenge 🥗",
+      instruction_text: "Open your mouth to catch food! Choose healthy foods to stay fit!",
+      background_color: "#667eea",
+      surface_color: "#ffffff",
+      text_color: "#1f2937",
+      primary_action_color: "#10b981",
+      secondary_action_color: "#8b5cf6"
+    };
+
+    let config = { ...defaultConfig };
+    let detector = null;
+    let videoStream = null;
+    let gameState = {
+      screen: 'menu',
+      level: 1,
+      score: 0,
+      healthyCount: 0,
+      junkCount: 0,
+      lives: 3,
+      mouthOpen: false,
+      gameActive: false,
+      playerName: '',
+      fallingItems: []
+    };
+
+    const levels = [
+      { name: "Breakfast Challenge", duration: 30, speed: 3 },
+      { name: "Lunch Rush", duration: 40, speed: 4 },
+      { name: "Dinner Dash", duration: 50, speed: 5 },
+      { name: "Midnight Snack", duration: 60, speed: 6 },
+      { name: "Ultimate Food Master", duration: 90, speed: 7 }
+    ];
+
+    const healthyFoods = ['🍎', '🥗', '🥦', '🥕', '🍊', '🍇', '🥑', '🍓'];
+    const junkFoods = ['🍔', '🍕', '🍟', '🍩', '🍰', '🌭', '🍿', '🍫'];
+    const bombs = ['💣'];
+
+    async function setupCamera() {
+      try {
+        showToast('กำลังเปิดกล้อง... / Opening camera...', 'info');
+        
+        videoStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          } 
+        });
+        
+        const video = document.getElementById('videoElement');
+        if (video) {
+          video.srcObject = videoStream;
+          await video.play();
+          
+          showToast('กำลังโหลด Face Detection... / Loading face detection...', 'info');
+          
+          const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+          const detectorConfig = {
+            runtime: 'tfjs',
+            refineLandmarks: true,
+            maxFaces: 1
+          };
+          
+          detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
+          
+          showToast('✅ พร้อมเล่น! / Ready to play!', 'success');
+          detectMouth();
+        }
+      } catch (error) {
+        console.error('Camera error:', error);
+        showToast('❌ กรุณาอนุญาตการใช้กล้อง / Please allow camera access', 'error');
+      }
+    }
+
+    async function detectMouth() {
+      if (!gameState.gameActive || !detector) return;
+
+      const video = document.getElementById('videoElement');
+      if (!video || video.readyState < 2) {
+        requestAnimationFrame(detectMouth);
+        return;
+      }
+
+      try {
+        const faces = await detector.estimateFaces(video);
+        
+        if (faces.length > 0) {
+          const keypoints = faces[0].keypoints;
+          
+          // ใช้ keypoints จาก MediaPipe FaceMesh
+          // Upper lip: index 13, Lower lip: index 14
+          const upperLip = keypoints.find(kp => kp.name === 'upperLip' || kp.name === 'lipUpperOuter');
+          const lowerLip = keypoints.find(kp => kp.name === 'lowerLip' || kp.name === 'lipLowerOuter');
+          
+          // ถ้าไม่เจอ keypoint ที่ต้องการ ใช้ index แทน
+          const upperLipPoint = upperLip || keypoints[13];
+          const lowerLipPoint = lowerLip || keypoints[14];
+          
+          if (upperLipPoint && lowerLipPoint) {
+            const mouthOpenDistance = Math.abs(lowerLipPoint.y - upperLipPoint.y);
+            
+            const wasClosed = !gameState.mouthOpen;
+            gameState.mouthOpen = mouthOpenDistance > 20;
+            
+            const indicator = document.getElementById('mouthIndicator');
+            if (indicator) {
+              if (gameState.mouthOpen) {
+                indicator.classList.add('mouth-open');
+                if (wasClosed) {
+                  checkFoodCatch();
+                }
+              } else {
+                indicator.classList.remove('mouth-open');
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Face detection error:', error);
+      }
+
+      if (gameState.gameActive) {
+        requestAnimationFrame(detectMouth);
+      }
+    }
+
+    function checkFoodCatch() {
+      const catchZone = document.getElementById('catchZone');
+      if (!catchZone) return;
+
+      const catchRect = catchZone.getBoundingClientRect();
+      const catchY = catchRect.top + catchRect.height / 2;
+
+      gameState.fallingItems.forEach((item, index) => {
+        const element = document.getElementById(`food-${item.id}`);
+        if (!element || item.caught) return;
+
+        const rect = element.getBoundingClientRect();
+        const itemY = rect.top + rect.height / 2;
+
+        if (Math.abs(itemY - catchY) < 80 && 
+            rect.left < catchRect.right && 
+            rect.right > catchRect.left) {
+          
+          item.caught = true;
+          element.style.display = 'none';
+
+          if (item.type === 'bomb') {
+            gameState.lives--;
+            showToast('💥 โดนระเบิด! / Hit a bomb!', 'error');
+            if (gameState.lives <= 0) {
+              endGame();
+            }
+          } else if (item.type === 'healthy') {
+            gameState.score += 10;
+            gameState.healthyCount++;
+            showToast('✨ อาหารดี! +10', 'success');
+          } else {
+            gameState.score += 5;
+            gameState.junkCount++;
+            showToast('🍔 อาหารขยะ +5', 'warning');
+          }
+
+          updateGameUI();
+        }
+      });
+    }
+
+    function startGame(level) {
+      gameState.level = level;
+      gameState.score = 0;
+      gameState.healthyCount = 0;
+      gameState.junkCount = 0;
+      gameState.lives = 3;
+      gameState.gameActive = true;
+      gameState.fallingItems = [];
+      gameState.screen = 'game';
+      
+      render();
+      setupCamera();
+      spawnFoodItems();
+      startGameTimer();
+    }
+
+    function spawnFoodItems() {
+      if (!gameState.gameActive) return;
+
+      const levelData = levels[gameState.level - 1];
+      const allFoods = [...healthyFoods, ...junkFoods, ...bombs];
+      const randomFood = allFoods[Math.floor(Math.random() * allFoods.length)];
+      
+      let type = 'healthy';
+      if (junkFoods.includes(randomFood)) type = 'junk';
+      if (bombs.includes(randomFood)) type = 'bomb';
+
+      const item = {
+        id: Date.now() + Math.random(),
+        emoji: randomFood,
+        type: type,
+        x: Math.random() * 80 + 10,
+        caught: false
+      };
+
+      gameState.fallingItems.push(item);
+
+      const gameArea = document.getElementById('gameArea');
+      if (gameArea) {
+        const foodEl = document.createElement('div');
+        foodEl.id = `food-${item.id}`;
+        foodEl.className = 'falling food-item';
+        foodEl.style.cssText = `
+          position: absolute;
+          left: ${item.x}%;
+          top: -100px;
+          font-size: 48px;
+          z-index: 10;
+          animation-duration: ${levelData.speed}s;
+        `;
+        foodEl.textContent = item.emoji;
+        gameArea.appendChild(foodEl);
+
+        setTimeout(() => {
+          if (foodEl.parentNode) {
+            foodEl.remove();
+          }
+        }, levelData.speed * 1000);
+      }
+
+      setTimeout(() => spawnFoodItems(), 1500 / levelData.speed);
+    }
+
+    function startGameTimer() {
+      const levelData = levels[gameState.level - 1];
+      let timeLeft = levelData.duration;
+
+      const timer = setInterval(() => {
+        if (!gameState.gameActive) {
+          clearInterval(timer);
+          return;
+        }
+
+        timeLeft--;
+        const timerEl = document.getElementById('timer');
+        if (timerEl) {
+          timerEl.textContent = `⏱️ ${timeLeft}s`;
+        }
+
+        if (timeLeft <= 0) {
+          clearInterval(timer);
+          endGame();
+        }
+      }, 1000);
+    }
+
+    function endGame() {
+      gameState.gameActive = false;
+      
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+      }
+
+      gameState.screen = 'result';
+      render();
+    }
+
+    function updateGameUI() {
+      const scoreEl = document.getElementById('score');
+      const livesEl = document.getElementById('lives');
+      
+      if (scoreEl) scoreEl.textContent = `🏆 ${gameState.score}`;
+      if (livesEl) livesEl.textContent = `❤️ ${gameState.lives}`;
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = 'fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 font-bold';
+      toast.style.cssText = `
+        background: ${type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#f59e0b'};
+        color: white;
+      `;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => toast.remove(), 2000);
+    }
+
+    function getCharacterEmoji() {
+      const ratio = gameState.healthyCount / (gameState.healthyCount + gameState.junkCount || 1);
+      if (ratio > 0.7) return '💪😊';
+      if (ratio > 0.4) return '😐';
+      return '😰🍔';
+    }
+
+    function getResultMessage() {
+      const ratio = gameState.healthyCount / (gameState.healthyCount + gameState.junkCount || 1);
+      if (ratio > 0.7) return 'สุขภาพดีมาก! / Excellent Health!';
+      if (ratio > 0.4) return 'พอใช้ได้ / Fair Health';
+      return 'ควรดูแลสุขภาพมากขึ้น / Need Better Choices!';
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+      const bgColor = config.background_color;
+      const surfaceColor = config.surface_color;
+      const textColor = config.text_color;
+      const primaryColor = config.primary_action_color;
+      const secondaryColor = config.secondary_action_color;
+
+      if (gameState.screen === 'menu') {
+        app.innerHTML = `
+          <div class="game-container w-full h-full flex items-center justify-center p-8" style="background: ${bgColor};">
+            <div class="text-center max-w-2xl" style="background: ${surfaceColor}; border-radius: 24px; padding: 48px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+              <h1 class="text-6xl font-bold mb-6 pulse" style="color: ${textColor};">${config.game_title}</h1>
+              <p class="text-xl mb-8" style="color: ${textColor};">${config.instruction_text}</p>
+              
+              <input 
+                type="text" 
+                id="playerNameInput" 
+                placeholder="ชื่อของคุณ / Your Name" 
+                class="w-full px-6 py-4 text-xl rounded-xl mb-6 border-4 outline-none"
+                style="border-color: ${primaryColor}; color: ${textColor};"
+              />
+              
+              <div class="space-y-4">
+                ${levels.map((level, index) => `
+                  <button 
+                    onclick="gameState.playerName = document.getElementById('playerNameInput').value; startGame(${index + 1})"
+                    class="w-full px-8 py-4 text-xl font-bold rounded-xl transition-all hover:scale-105"
+                    style="background: ${index === 0 ? primaryColor : secondaryColor}; color: white;"
+                  >
+                    Level ${index + 1}: ${level.name} (${level.duration}s)
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (gameState.screen === 'game') {
+        app.innerHTML = `
+          <div class="game-container w-full h-full relative" style="background: ${bgColor};">
+            <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-20">
+              <div class="flex gap-4">
+                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="score">🏆 0</div>
+                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="lives">❤️ 3</div>
+                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="timer">⏱️ ${levels[gameState.level - 1].duration}s</div>
+              </div>
+            </div>
+
+            <div id="gameArea" class="w-full h-full relative">
+              <div id="catchZone" class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full flex items-center justify-center z-30" style="background: ${primaryColor}40; border: 4px dashed ${primaryColor};">
+                <div id="mouthIndicator" class="w-16 h-16 rounded-full mouth-indicator transition-all" style="background: ${secondaryColor};"></div>
+              </div>
+            </div>
+
+            <div class="absolute bottom-4 right-4 z-20">
+              <video id="videoElement" width="200" height="150" autoplay muted playsinline class="rounded-xl shadow-lg" style="border: 4px solid ${surfaceColor};"></video>
+            </div>
+          </div>
+        `;
+      } else if (gameState.screen === 'result') {
+        app.innerHTML = `
+          <div class="game-container w-full h-full flex items-center justify-center p-8" style="background: ${bgColor};">
+            <div class="text-center max-w-2xl" style="background: ${surfaceColor}; border-radius: 24px; padding: 48px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+              <div class="text-9xl mb-6 pulse">${getCharacterEmoji()}</div>
+              <h2 class="text-5xl font-bold mb-4" style="color: ${textColor};">เกมจบแล้ว! / Game Over!</h2>
+              <h3 class="text-3xl font-bold mb-8" style="color: ${primaryColor};">${getResultMessage()}</h3>
+              
+              <div class="grid grid-cols-2 gap-6 mb-8">
+                <div class="p-6 rounded-xl" style="background: ${bgColor}20;">
+                  <div class="text-5xl mb-2">🏆</div>
+                  <div class="text-3xl font-bold" style="color: ${textColor};">${gameState.score}</div>
+                  <div style="color: ${textColor};">คะแนน / Score</div>
+                </div>
+                <div class="p-6 rounded-xl" style="background: ${bgColor}20;">
+                  <div class="text-5xl mb-2">🍎</div>
+                  <div class="text-3xl font-bold" style="color: ${primaryColor};">${gameState.healthyCount}</div>
+                  <div style="color: ${textColor};">อาหารดี / Healthy</div>
+                </div>
+                <div class="p-6 rounded-xl" style="background: ${bgColor}20;">
+                  <div class="text-5xl mb-2">🍔</div>
+                  <div class="text-3xl font-bold" style="color: ${secondaryColor};">${gameState.junkCount}</div>
+                  <div style="color: ${textColor};">อาหารขยะ / Junk</div>
+                </div>
+                <div class="p-6 rounded-xl" style="background: ${bgColor}20;">
+                  <div class="text-5xl mb-2">📊</div>
+                  <div class="text-3xl font-bold" style="color: ${textColor};">${Math.round(gameState.healthyCount / (gameState.healthyCount + gameState.junkCount || 1) * 100)}%</div>
+                  <div style="color: ${textColor};">สุขภาพดี / Healthy</div>
+                </div>
+              </div>
+
+              <button 
+                onclick="gameState.screen = 'menu'; render();"
+                class="w-full px-8 py-4 text-2xl font-bold rounded-xl transition-all hover:scale-105"
+                style="background: ${primaryColor}; color: white;"
+              >
+                🏠 กลับเมนู / Back to Menu
+              </button>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    render();
+  </script>
+ </body>
+</html>
