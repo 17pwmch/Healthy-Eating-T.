@@ -3,13 +3,16 @@
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Healthy Eating Challenge</title>
+  <title>Healthy Eating Challenge AR</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
       box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
     }
     
     @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
@@ -23,9 +26,31 @@
       position: relative;
       overflow: hidden;
     }
+
+    #videoBackground {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      z-index: 1;
+    }
+
+    .game-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
     
     .food-item {
       transition: transform 0.1s ease;
+      pointer-events: none;
     }
     
     @keyframes fall {
@@ -54,27 +79,30 @@
       animation: pulse 1s ease-in-out infinite;
     }
     
-    #videoElement {
-      transform: scaleX(-1);
-    }
-    
-    .mouth-catcher {
+    .mouth-indicator {
       position: absolute;
-      width: 100px;
-      height: 100px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
-      transition: left 0.1s ease, background 0.2s ease, transform 0.2s ease;
-      z-index: 40;
+      border: 5px solid #10b981;
+      transition: all 0.1s ease;
       pointer-events: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 64px;
+      z-index: 30;
+      background: rgba(16, 185, 129, 0.1);
     }
     
-    .mouth-open-catcher {
-      transform: scale(1.3);
+    .mouth-open-indicator {
+      border-color: #10b981;
+      border-width: 6px;
       box-shadow: 0 0 40px rgba(16, 185, 129, 0.8);
+      background: rgba(16, 185, 129, 0.2);
+      animation: pulse 0.5s ease-in-out infinite;
+    }
+
+    .mouth-closed-indicator {
+      border-color: #6b7280;
+      border-width: 3px;
+      background: rgba(107, 114, 128, 0.1);
     }
 
     .debug-info {
@@ -84,6 +112,7 @@
       padding: 8px 12px;
       border-radius: 8px;
       line-height: 1.6;
+      pointer-events: auto;
     }
 
     @keyframes catch-effect {
@@ -106,14 +135,18 @@
       25% { transform: translateX(-10px); }
       75% { transform: translateX(10px); }
     }
+
+    .ui-element {
+      pointer-events: auto;
+    }
   </style>
  </head>
- <body class="h-full m-0 p-0">
+ <body class="h-full">
   <div id="app" class="w-full h-full"></div>
   <script>
     const defaultConfig = {
-      game_title: "🍎 Healthy Eating Challenge 🥗",
-      instruction_text: "Move your face to catch falling food! Open mouth to eat!",
+      game_title: "🍎 AR Healthy Eating Challenge 🥗",
+      instruction_text: "Use your REAL mouth to catch falling food!",
       background_color: "#667eea",
       surface_color: "#ffffff",
       text_color: "#1f2937",
@@ -162,12 +195,12 @@
         videoStream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
             facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 }
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           } 
         });
         
-        const video = document.getElementById('videoElement');
+        const video = document.getElementById('videoBackground');
         if (video) {
           video.srcObject = videoStream;
           await video.play();
@@ -186,7 +219,7 @@
           
           detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
           
-          showToast('✅ ขยับหน้าและอ้าปาก! / Move & open mouth!', 'success');
+          showToast('✅ เริ่มเกม! อ้าปากรับผลไม้! / Start! Open mouth!', 'success');
           detectMouth();
         }
       } catch (error) {
@@ -198,7 +231,7 @@
     async function detectMouth() {
       if (!gameState.gameActive || !detector) return;
 
-      const video = document.getElementById('videoElement');
+      const video = document.getElementById('videoBackground');
       if (!video || video.readyState < 2) {
         requestAnimationFrame(detectMouth);
         return;
@@ -215,21 +248,32 @@
           const lowerLip = keypoints[14];
           
           if (upperLip && lowerLip) {
-            // คำนวณตำแหน่งปาก (แปลงจากพิกัด video เป็นพิกัดหน้าจอ)
+            // คำนวณตำแหน่งปากในวิดีโอ
             const mouthCenterX = (upperLip.x + lowerLip.x) / 2;
             const mouthCenterY = (upperLip.y + lowerLip.y) / 2;
             
-            // แปลงเป็น % ของหน้าจอ (กลับซ้าย-ขวาเพราะวิดีโอ mirror)
-            gameState.mouthX = 100 - (mouthCenterX / gameState.videoWidth * 100);
-            gameState.mouthY = (mouthCenterY / gameState.videoHeight * 100);
+            // แปลงเป็นตำแหน่งบนหน้าจอ (กลับซ้าย-ขวาเพราะวิดีโอ mirror)
+            const videoElement = document.getElementById('videoBackground');
+            const videoRect = videoElement.getBoundingClientRect();
+            
+            // คำนวณ scale ระหว่างวิดีโอกับหน้าจอ
+            const scaleX = videoRect.width / gameState.videoWidth;
+            const scaleY = videoRect.height / gameState.videoHeight;
+            
+            // ตำแหน่งจริงบนหน้าจอ (flip X เพราะ mirror)
+            const screenX = videoRect.width - (mouthCenterX * scaleX);
+            const screenY = mouthCenterY * scaleY;
+            
+            gameState.mouthX = screenX;
+            gameState.mouthY = screenY;
             
             // ตรวจสอบปากเปิดหรือไม่
             const mouthOpenDistance = Math.abs(lowerLip.y - upperLip.y);
             gameState.mouthDistance = Math.round(mouthOpenDistance);
             gameState.mouthOpen = mouthOpenDistance > 10;
             
-            // อัพเดทตำแหน่งปากบนหน้าจอ
-            updateMouthCatcher();
+            // อัพเดทตัวบ่งชี้ปาก
+            updateMouthIndicator();
             
             // ตรวจสอบการจับอาหาร
             checkFoodCatchContinuous();
@@ -238,6 +282,7 @@
           }
         } else {
           gameState.faceDetected = false;
+          updateDebugInfo();
         }
       } catch (error) {
         console.error('Face detection error:', error);
@@ -248,21 +293,22 @@
       }
     }
 
-    function updateMouthCatcher() {
-      const catcher = document.getElementById('mouthCatcher');
-      if (!catcher) return;
+    function updateMouthIndicator() {
+      const indicator = document.getElementById('mouthIndicator');
+      if (!indicator) return;
       
       // อัพเดทตำแหน่ง
-      catcher.style.left = `${gameState.mouthX}%`;
-      catcher.style.top = `${gameState.mouthY}%`;
+      indicator.style.left = `${gameState.mouthX}px`;
+      indicator.style.top = `${gameState.mouthY}px`;
+      indicator.style.transform = 'translate(-50%, -50%)';
       
-      // เปลี่ยน emoji ตามสถานะ
+      // เปลี่ยนสไตล์ตามสถานะ
       if (gameState.mouthOpen) {
-        catcher.textContent = '😮';
-        catcher.classList.add('mouth-open-catcher');
+        indicator.classList.remove('mouth-closed-indicator');
+        indicator.classList.add('mouth-open-indicator');
       } else {
-        catcher.textContent = '😐';
-        catcher.classList.remove('mouth-open-catcher');
+        indicator.classList.remove('mouth-open-indicator');
+        indicator.classList.add('mouth-closed-indicator');
       }
     }
 
@@ -272,21 +318,14 @@
         debugEl.innerHTML = `
           Face: ${gameState.faceDetected ? '✅' : '❌'} | 
           Mouth: ${gameState.mouthDistance}px ${gameState.mouthOpen ? '😮 OPEN' : '😐'}<br>
-          Position: X=${Math.round(gameState.mouthX)}% Y=${Math.round(gameState.mouthY)}% | 
+          Position: X=${Math.round(gameState.mouthX)} Y=${Math.round(gameState.mouthY)} | 
           Items: ${gameState.fallingItems.filter(i => !i.caught).length}
         `;
       }
     }
 
     function checkFoodCatchContinuous() {
-      if (!gameState.mouthOpen) return;
-
-      const catcher = document.getElementById('mouthCatcher');
-      if (!catcher) return;
-
-      const catcherRect = catcher.getBoundingClientRect();
-      const catcherCenterX = catcherRect.left + catcherRect.width / 2;
-      const catcherCenterY = catcherRect.top + catcherRect.height / 2;
+      if (!gameState.mouthOpen || !gameState.faceDetected) return;
 
       gameState.fallingItems.forEach((item) => {
         if (item.caught) return;
@@ -300,12 +339,12 @@
 
         // คำนวณระยะห่างระหว่างปากกับอาหาร
         const distance = Math.sqrt(
-          Math.pow(itemCenterX - catcherCenterX, 2) + 
-          Math.pow(itemCenterY - catcherCenterY, 2)
+          Math.pow(itemCenterX - gameState.mouthX, 2) + 
+          Math.pow(itemCenterY - gameState.mouthY, 2)
         );
 
-        // ถ้าอยู่ใกล้พอ (รัศมีจับ 80px)
-        if (distance < 80) {
+        // ถ้าอยู่ใกล้พอ (รัศมีจับ 90px)
+        if (distance < 90) {
           catchFood(item, element);
         }
       });
@@ -427,7 +466,7 @@
 
       gameState.fallingItems.push(item);
 
-      const gameArea = document.getElementById('gameArea');
+      const gameArea = document.getElementById('gameOverlay');
       if (gameArea) {
         const foodEl = document.createElement('div');
         foodEl.id = `food-${item.id}`;
@@ -436,10 +475,10 @@
           position: absolute;
           left: ${item.x}%;
           top: -100px;
-          font-size: 60px;
-          z-index: 10;
+          font-size: 64px;
+          z-index: 20;
           animation-duration: ${levelData.speed}s;
-          filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.5));
+          filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.7));
         `;
         foodEl.textContent = item.emoji;
         gameArea.appendChild(foodEl);
@@ -502,10 +541,11 @@
 
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
-      toast.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg z-50 font-bold';
+      toast.className = 'fixed top-24 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg font-bold';
       toast.style.cssText = `
         background: ${type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#f59e0b'};
         color: white;
+        z-index: 100;
       `;
       toast.textContent = message;
       document.body.appendChild(toast);
@@ -544,9 +584,10 @@
               
               <div class="mb-6 p-6 rounded-xl" style="background: ${primaryColor}20; border: 2px solid ${primaryColor};">
                 <p class="text-2xl font-bold mb-3" style="color: ${textColor};">💡 วิธีเล่น / How to Play:</p>
-                <p class="text-lg mb-2" style="color: ${textColor};">1. ขยับหน้าไปซ้าย-ขวา 👈👉</p>
-                <p class="text-lg mb-2" style="color: ${textColor};">2. อ้าปากตอนอาหารมาตรงปาก 😮</p>
-                <p class="text-lg" style="color: ${textColor};">3. Move face & open mouth to catch!</p>
+                <p class="text-lg mb-2" style="color: ${textColor};">📹 กล้องจะเป็นพื้นหลัง</p>
+                <p class="text-lg mb-2" style="color: ${textColor};">👄 ใช้ปากจริงของคุณจับอาหาร</p>
+                <p class="text-lg mb-2" style="color: ${textColor};">😮 อ้าปากเมื่ออาหารมาถึงปาก</p>
+                <p class="text-lg" style="color: ${textColor};">🎯 วงกลมสีเขียว = พร้อมจับ!</p>
               </div>
               
               <input 
@@ -573,33 +614,33 @@
         `;
       } else if (gameState.screen === 'game') {
         app.innerHTML = `
-          <div class="game-container w-full h-full relative" style="background: ${bgColor};">
-            <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-20">
-              <div class="flex gap-4 flex-wrap">
-                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="score">🏆 0</div>
-                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="lives">❤️ 3</div>
-                <div class="px-6 py-3 rounded-xl font-bold text-2xl" style="background: ${surfaceColor}; color: ${textColor};" id="timer">⏱️ ${levels[gameState.level - 1].duration}s</div>
+          <div class="game-container w-full h-full relative">
+            <!-- พื้นหลังเป็นกล้อง -->
+            <video id="videoBackground" autoplay muted playsinline></video>
+            
+            <!-- Overlay สำหรับอาหารและ UI -->
+            <div id="gameOverlay" class="game-overlay">
+              <!-- UI Elements -->
+              <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-50">
+                <div class="flex gap-4 flex-wrap">
+                  <div class="px-6 py-3 rounded-xl font-bold text-2xl ui-element" style="background: rgba(255,255,255,0.9); color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" id="score">🏆 0</div>
+                  <div class="px-6 py-3 rounded-xl font-bold text-2xl ui-element" style="background: rgba(255,255,255,0.9); color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" id="lives">❤️ 3</div>
+                  <div class="px-6 py-3 rounded-xl font-bold text-2xl ui-element" style="background: rgba(255,255,255,0.9); color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" id="timer">⏱️ ${levels[gameState.level - 1].duration}s</div>
+                </div>
               </div>
-            </div>
 
-            <div class="absolute top-20 left-4 z-20 debug-info" id="debugInfo">
-              Loading...
-            </div>
-
-            <div id="gameArea" class="w-full h-full relative">
-              <!-- ตัวจับอาหาร (ปาก) ที่ขยับตามใบหน้า -->
-              <div id="mouthCatcher" class="mouth-catcher" style="background: ${primaryColor}40; border: 4px solid ${primaryColor};">
-                😐
+              <!-- Debug Info -->
+              <div class="absolute top-24 left-4 z-50 debug-info" id="debugInfo">
+                Loading...
               </div>
-            </div>
 
-            <div class="absolute bottom-4 right-4 z-20">
-              <video id="videoElement" width="200" height="150" autoplay muted playsinline class="rounded-xl shadow-lg" style="border: 4px solid ${surfaceColor};"></video>
-            </div>
+              <!-- ตัวบ่งชี้ปาก (วงกลมที่ตำแหน่งปาก) -->
+              <div id="mouthIndicator" class="mouth-indicator mouth-closed-indicator"></div>
 
-            <div class="absolute bottom-4 left-4 z-20 px-6 py-3 rounded-xl text-white font-bold text-lg" style="background: rgba(0,0,0,0.8);">
-              ↔️ ขยับหน้า / Move face<br>
-              😮 อ้าปาก / Open mouth
+              <!-- คำแนะนำ -->
+              <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-xl text-white font-bold text-xl text-center" style="background: rgba(0,0,0,0.8);">
+                😮 อ้าปากรับผลไม้! / Open mouth to catch!
+              </div>
             </div>
           </div>
         `;
@@ -630,24 +671,4 @@
                 <div class="p-6 rounded-xl" style="background: ${bgColor}20;">
                   <div class="text-5xl mb-2">📊</div>
                   <div class="text-3xl font-bold" style="color: ${textColor};">${Math.round(gameState.healthyCount / (gameState.healthyCount + gameState.junkCount || 1) * 100)}%</div>
-                  <div style="color: ${textColor};">สุขภาพดี / Healthy</div>
-                </div>
-              </div>
-
-              <button 
-                onclick="gameState.screen = 'menu'; render();"
-                class="w-full px-8 py-4 text-2xl font-bold rounded-xl transition-all hover:scale-105"
-                style="background: ${primaryColor}; color: white;"
-              >
-                🏠 กลับเมนู / Back to Menu
-              </button>
-            </div>
-          </div>
-        `;
-      }
-    }
-
-    render();
-  </script>
- </body>
-</html>
+                  <div style="color: ${textColor};">สุขภาพด
