@@ -3,13 +3,13 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AR Healthy Eating</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.3/dist/face-landmarks-detection.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.3"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 0; padding: 0; overflow: hidden; touch-action: none; }
+    body { margin: 0; padding: 0; overflow: hidden; }
     @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
     * { font-family: 'Fredoka', 'Comic Sans MS', cursive; }
 
@@ -29,23 +29,23 @@
 }
 
 .falling {
-  animation: fall linear forwards; position: absolute; font-size: 48px;
-  z-index: 20; filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.7));
+  animation: fall linear forwards; position: absolute; font-size: 50px;
+  z-index: 20; filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.7));
   pointer-events: none;
 }
 
 .mouth-indicator {
-  position: absolute; width: 120px; height: 120px; border-radius: 50%;
-  border: 5px solid #ef4444; transition: all 0.1s; z-index: 30;
+  position: absolute; width: 140px; height: 140px; border-radius: 50%;
+  border: 6px solid #ef4444; transition: all 0.1s; z-index: 30;
   background: rgba(239, 68, 68, 0.2); pointer-events: none;
-  display: flex; align-items: center; justify-content: center; font-size: 2.5rem;
+  display: flex; align-items: center; justify-content: center; font-size: 3rem;
 }
 
 .mouth-open {
   border-color: #10b981 !important; border-width: 8px !important;
-  box-shadow: 0 0 40px rgba(16, 185, 129, 1);
+  box-shadow: 0 0 50px rgba(16, 185, 129, 1);
   background: rgba(16, 185, 129, 0.3) !important;
-  transform: translate(-50%, -50%) scale(1.15) !important;
+  transform: translate(-50%, -50%) scale(1.2) !important;
 }
 
 @keyframes catch-effect {
@@ -65,15 +65,14 @@
 .loading {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: rgba(0,0,0,0.95); color: white; padding: 2rem;
-  border-radius: 16px; font-size: 1.2rem; z-index: 10000; text-align: center;
-  max-width: 80%; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  border-radius: 16px; font-size: 1.3rem; z-index: 10000; text-align: center;
+  max-width: 85%;
 }
 
 .debug-info {
-  position: fixed; top: 80px; right: 5px; background: rgba(0,0,0,0.95);
-  color: white; padding: 10px; border-radius: 8px; font-family: monospace;
-  font-size: 11px; z-index: 100; min-width: 180px; line-height: 1.5;
-  max-width: 200px;
+  position: fixed; top: 90px; right: 8px; background: rgba(0,0,0,0.95);
+  color: white; padding: 12px; border-radius: 10px; font-family: monospace;
+  font-size: 12px; z-index: 100; min-width: 200px; line-height: 1.6;
 }
 
   </style>
@@ -81,20 +80,19 @@
 <body>
   <div id="app"></div>
   <script>
-    let detector, videoStream, model;
+    let model, videoStream;
     let state = {
       screen: 'menu', level: 1, score: 0, healthyCount: 0, junkCount: 0, lives: 3,
       mouthOpen: false, gameActive: false, fallingItems: [], 
       mouthX: window.innerWidth / 2, mouthY: window.innerHeight / 2,
       videoWidth: 640, videoHeight: 480, faceDetected: false,
-      loading: false, mouthDistance: 0, threshold: 15,
-      modelLoaded: false, cameraReady: false
+      loading: false, mouthDistance: 0, threshold: 15, modelLoaded: false
     };
 
 const levels = [
-  { name: "Breakfast", duration: 30, speed: 5 },
-  { name: "Lunch", duration: 40, speed: 4.5 },
-  { name: "Dinner", duration: 50, speed: 4 }
+  { name: "Breakfast", duration: 30, speed: 4.5 },
+  { name: "Lunch", duration: 40, speed: 4 },
+  { name: "Dinner", duration: 50, speed: 3.5 }
 ];
 
 const healthyFoods = ['🍎','🥗','🥦','🥕','🍊','🍇','🥑','🍓'];
@@ -104,61 +102,49 @@ const bombs = ['💣'];
 async function setupCamera() {
   try {
     state.loading = true;
-    updateLoadingMessage('กำลังเปิดกล้อง...<br>Opening camera...');
+    updateLoadingMessage('เปิดกล้อง...');
     
-    const constraints = { 
-      video: { 
-        facingMode: 'user',
-        width: { ideal: 640 }, 
-        height: { ideal: 480 }
-      },
+    videoStream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: 'user', width: 640, height: 480 },
       audio: false
-    };
-    
-    videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+    });
     
     const video = document.getElementById('videoBackground');
     video.srcObject = videoStream;
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('autoplay', 'true');
     
     await new Promise((resolve) => {
-      video.onloadedmetadata = async () => {
-        await video.play();
+      video.onloadedmetadata = () => {
+        video.play();
         state.videoWidth = video.videoWidth || 640;
         state.videoHeight = video.videoHeight || 480;
-        state.cameraReady = true;
-        console.log('✅ Camera ready:', state.videoWidth, 'x', state.videoHeight);
+        console.log('✅ Camera ready');
         resolve();
       };
     });
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(r => setTimeout(r, 800));
     
-    updateLoadingMessage('กำลังโหลด AI Model...<br>Loading Face Detection...<br><small>กรุณารอสักครู่</small>');
+    updateLoadingMessage('โหลด AI...<br>รอสักครู่...');
     
-    // ใช้ MediaPipe FaceMesh แบบเก่าที่เสถียรกว่า
     model = await faceLandmarksDetection.load(
       faceLandmarksDetection.SupportedPackages.mediapipeFacemesh,
       { maxFaces: 1 }
     );
     
     state.modelLoaded = true;
-    console.log('✅ Model loaded');
+    console.log('✅ AI ready');
     
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(r => setTimeout(r, 500));
     
     state.loading = false;
     removeLoadingMessage();
-    
-    console.log('✅ Starting detection');
     detectMouth();
     
   } catch (e) {
-    console.error('❌ Setup Error:', e);
+    console.error('❌ Error:', e);
     state.loading = false;
     removeLoadingMessage();
-    alert('ไม่สามารถเปิดกล้องได้\n\nกรุณา:\n1. อนุญาตการใช้กล้อง\n2. Refresh หน้าเว็บ\n3. ลองใช้ Chrome');
+    alert('ไม่สามารถเปิดกล้อง\nกรุณาอนุญาตกล้อง');
     endGame();
   }
 }
@@ -180,16 +166,13 @@ function removeLoadingMessage() {
 }
 
 async function detectMouth() {
-  if (!state.gameActive) return;
-  
-  const video = document.getElementById('videoBackground');
-  
-  if (!video || video.readyState < 2) {
+  if (!state.gameActive || !model) {
     setTimeout(() => detectMouth(), 100);
     return;
   }
-
-  if (!model || !state.modelLoaded) {
+  
+  const video = document.getElementById('videoBackground');
+  if (!video || video.readyState < 2) {
     setTimeout(() => detectMouth(), 100);
     return;
   }
@@ -201,9 +184,6 @@ async function detectMouth() {
       state.faceDetected = true;
       const mesh = predictions[0].scaledMesh;
       
-      // MediaPipe landmarks (แบบเก่า)
-      // 13 = upper lip, 14 = lower lip
-      // 61 = left mouth, 291 = right mouth
       const upperLip = mesh[13];
       const lowerLip = mesh[14];
       const leftMouth = mesh[61];
@@ -213,24 +193,20 @@ async function detectMouth() {
       const mouthWidth = Math.abs(rightMouth[0] - leftMouth[0]);
       
       state.mouthDistance = mouthHeight;
-      
-      // ปรับ threshold ให้เหมาะกับขนาดปาก
-      const dynamicThreshold = Math.max(mouthWidth * 0.08, 8);
+      const dynamicThreshold = Math.max(mouthWidth * 0.1, 10);
       state.threshold = dynamicThreshold;
       
-      // เช็คว่าปากอ้าหรือไม่
       state.mouthOpen = mouthHeight > dynamicThreshold;
       
-      // คำนวณตำแหน่งปาก
-      const mouthCenterX = (leftMouth[0] + rightMouth[0]) / 2;
-      const mouthCenterY = (upperLip[1] + lowerLip[1]) / 2;
+      const mouthX = (leftMouth[0] + rightMouth[0]) / 2;
+      const mouthY = (upperLip[1] + lowerLip[1]) / 2;
       
       const videoRect = video.getBoundingClientRect();
       const scaleX = videoRect.width / state.videoWidth;
       const scaleY = videoRect.height / state.videoHeight;
       
-      state.mouthX = videoRect.width - (mouthCenterX * scaleX);
-      state.mouthY = (mouthCenterY * scaleY);
+      state.mouthX = videoRect.width - (mouthX * scaleX);
+      state.mouthY = mouthY * scaleY;
       
       updateMouthIndicator();
       checkFoodCatch();
@@ -243,13 +219,10 @@ async function detectMouth() {
     }
     
   } catch (e) {
-    console.error('❌ Detection error:', e);
-    updateDebugInfo(0, state.threshold);
+    console.error('Detection error:', e);
   }
 
-  if (state.gameActive) {
-    setTimeout(() => detectMouth(), 100);
-  }
+  setTimeout(() => detectMouth(), 100);
 }
 
 function updateDebugInfo(distance, threshold) {
@@ -262,22 +235,18 @@ function updateDebugInfo(distance, threshold) {
   }
   
   debug.innerHTML = `
-    <div style="color: ${state.faceDetected ? '#0f0' : '#f00'}; font-weight: bold; margin-bottom: 4px; font-size: 13px;">
-      Face: ${state.faceDetected ? '✅' : '❌ NOT FOUND'}
+    <div style="color: ${state.faceDetected ? '#0f0' : '#f00'}; font-weight: bold; margin-bottom: 6px; font-size: 14px;">
+      Face: ${state.faceDetected ? '✅ OK' : '❌ NOT FOUND'}
     </div>
-    <div style="font-size: 10px;">Height: <span style="color: #0ff">${distance.toFixed(1)}</span></div>
-    <div style="font-size: 10px;">Threshold: <span style="color: #ff0">${threshold.toFixed(1)}</span></div>
-    <div style="margin: 6px 0; padding: 6px; background: rgba(0,0,0,0.5); border-radius: 4px;">
-      <div style="color: ${state.mouthOpen ? '#0f0' : '#f00'}; font-weight: bold; font-size: 14px;">
+    <div>Height: <span style="color: #0ff">${distance.toFixed(1)}</span></div>
+    <div>Threshold: <span style="color: #ff0">${threshold.toFixed(1)}</span></div>
+    <div style="margin: 8px 0; padding: 8px; background: rgba(0,0,0,0.6); border-radius: 6px;">
+      <div style="color: ${state.mouthOpen ? '#0f0' : '#f00'}; font-weight: bold; font-size: 16px;">
         ${state.mouthOpen ? 'OPEN ✓' : 'CLOSED'}
       </div>
     </div>
-    <div style="font-size: 9px; color: #888;">
-      Cam: ${state.cameraReady ? '✓' : '✗'}
-      AI: ${state.modelLoaded ? '✓' : '✗'}
-    </div>
-    <div style="font-size: 10px; color: #0ff; margin-top: 4px;">
-      💡 อ้าปากกว้าง!
+    <div style="font-size: 11px; color: #0ff; margin-top: 6px;">
+      💡 อ้าปากกว้างๆ!
     </div>
   `;
 }
@@ -312,7 +281,7 @@ function checkFoodCatch() {
     const dy = rect.top + rect.height/2 - state.mouthY;
     const dist = Math.sqrt(dx*dx + dy*dy);
     
-    if (dist < 100) catchFood(item, el);
+    if (dist < 120) catchFood(item, el);
   });
 }
 
@@ -322,7 +291,7 @@ function catchFood(item, el) {
   
   const effect = document.createElement('div');
   effect.style.cssText = `position:fixed; left:${state.mouthX}px; top:${state.mouthY}px; 
-    transform:translate(-50%,-50%); font-size:48px; z-index:1000; pointer-events:none;`;
+    transform:translate(-50%,-50%); font-size:60px; z-index:1000; pointer-events:none;`;
   
   if (item.type === 'bomb') {
     effect.textContent = '💥';
@@ -340,14 +309,14 @@ function catchFood(item, el) {
   
   document.body.appendChild(effect);
   setTimeout(() => {
-    effect.style.transition = 'all 0.4s';
+    effect.style.transition = 'all 0.5s';
     effect.style.opacity = '0';
     effect.style.transform = 'translate(-50%, -50%) scale(2)';
   }, 50);
   setTimeout(() => {
     effect.remove();
     if (el.parentNode) el.remove();
-  }, 500);
+  }, 600);
   
   updateUI();
 }
@@ -355,7 +324,7 @@ function catchFood(item, el) {
 function startGame(level) {
   state = { ...state, level, score: 0, healthyCount: 0, junkCount: 0, lives: 3, 
             gameActive: true, fallingItems: [], screen: 'game', 
-            mouthOpen: false, faceDetected: false, cameraReady: false, modelLoaded: false };
+            mouthOpen: false, faceDetected: false, modelLoaded: false };
   render();
   setupCamera();
   setTimeout(() => {
@@ -404,7 +373,7 @@ function spawnFood() {
     state.fallingItems = state.fallingItems.filter(i => i.id !== item.id);
   }, lvl.speed * 1000);
   
-  setTimeout(() => spawnFood(), 2000);
+  setTimeout(() => spawnFood(), 1800);
 }
 
 function startTimer() {
@@ -454,37 +423,41 @@ function render() {
     app.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                   width: 100vw; height: 100vh; display: flex; align-items: center; 
-                  justify-content: center; padding: 1.5rem; overflow-y: auto;">
-        <div style="background: white; border-radius: 20px; padding: 2rem; 
-                    max-width: 500px; text-align: center; box-shadow: 0 15px 50px rgba(0,0,0,0.3);">
-          <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 0.5rem;" class="pulse">
-            🍎 AR Healthy 🥗
+                  justify-content: center; padding: 2rem;">
+        <div style="background: white; border-radius: 24px; padding: 3rem; 
+                    max-width: 600px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+          <h1 style="font-size: 3rem; font-weight: bold; margin-bottom: 1rem;" class="pulse">
+            🍎 AR Healthy Eating 🥗
           </h1>
-          <p style="font-size: 1rem; margin-bottom: 1.5rem; color: #666;">
-            ใช้ปากจริงจับอาหาร!
+          <p style="font-size: 1.2rem; margin-bottom: 2rem; color: #666;">
+            ใช้ปากจริงของคุณจับอาหาร!
           </p>
-          <div style="background: rgba(239,68,68,0.1); border: 2px solid #ef4444; 
-                      border-radius: 10px; padding: 1rem; margin-bottom: 1rem;">
-            <p style="font-size: 1.1rem; font-weight: bold; color: #ef4444;">
-              ⚠️ อ้าปากกว้างๆ!
+          <div style="background: rgba(239,68,68,0.1); border: 3px solid #ef4444; 
+                      border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
+            <p style="font-size: 1.4rem; font-weight: bold; color: #ef4444;">
+              ⚠️ สำคัญ: อ้าปากกว้างๆ!
             </p>
-            <p style="margin-top: 0.3rem; font-size: 0.9rem;">ดู Debug มุมขวาบน</p>
+            <p style="margin-top: 0.5rem;">ดูกล่องดำมุมขวาบนว่าเป็น OPEN หรือไม่</p>
           </div>
           <div style="background: rgba(16,185,129,0.1); border: 2px solid #10b981; 
-                      border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; text-align: left;">
-            <p style="font-size: 1.1rem; font-weight: bold; text-align: center; margin-bottom: 0.3rem;">
+                      border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; text-align: left;">
+            <p style="font-size: 1.3rem; font-weight: bold; text-align: center; margin-bottom: 0.5rem;">
               💡 วิธีเล่น
             </p>
-            <p style="margin: 0.3rem 0; font-size: 0.9rem;">😮 วงเขียว = พร้อม</p>
-            <p style="margin: 0.3rem 0; font-size: 0.9rem;">🍎 +10 | 🍔 +5 | 💣 -1❤️</p>
+            <p style="margin: 0.5rem 0;">📹 กล้องเป็นพื้นหลัง</p>
+            <p style="margin: 0.5rem 0;">😐 วงกลมแดง = ปากปิด</p>
+            <p style="margin: 0.5rem 0;">😮 วงกลมเขียวใหญ่ = พร้อมจับ</p>
+            <p style="margin: 0.5rem 0;">🍎 อาหารดี +10 | 🍔 ขยะ +5 | 💣 -1 ชีวิต</p>
           </div>
           ${levels.map((l, i) => `
             <button onclick="startGame(${i+1})" 
-              style="width: 100%; padding: 0.9rem 1.5rem; margin: 0.4rem 0; 
-                     font-size: 1.1rem; font-weight: bold; border-radius: 10px; 
-                     border: none; color: white; cursor: pointer;
-                     background: linear-gradient(135deg, ${i === 0 ? '#10b981, #059669' : i === 1 ? '#8b5cf6, #7c3aed' : '#f59e0b, #d97706'});">
-              Level ${i+1}: ${l.name}
+              style="width: 100%; padding: 1rem 2rem; margin: 0.5rem 0; 
+                     font-size: 1.2rem; font-weight: bold; border-radius: 12px; 
+                     border: none; color: white; cursor: pointer; transition: transform 0.2s;
+                     background: linear-gradient(135deg, ${i === 0 ? '#10b981, #059669' : i === 1 ? '#8b5cf6, #7c3aed' : '#f59e0b, #d97706'});"
+              onmouseover="this.style.transform='scale(1.05)'"
+              onmouseout="this.style.transform='scale(1)'">
+              Level ${i+1}: ${l.name} (${l.duration}s)
             </button>
           `).join('')}
         </div>
@@ -492,23 +465,23 @@ function render() {
     `;
   } else if (state.screen === 'game') {
     app.innerHTML = `
-      <video id="videoBackground" autoplay muted playsinline webkit-playsinline></video>
+      <video id="videoBackground" autoplay muted playsinline></video>
       <div id="gameOverlay" class="game-overlay">
-        <div style="position: fixed; top: 0.5rem; left: 0.5rem; z-index: 50; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <div id="score" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">🏆 0</div>
-          <div id="lives" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">❤️ 3</div>
-          <div id="timer" style="background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; 
-                                 border-radius: 10px; font-size: 1.2rem; font-weight: bold;">
+        <div style="position: fixed; top: 1rem; left: 1rem; z-index: 50; display: flex; gap: 1rem; flex-wrap: wrap;">
+          <div id="score" style="background: rgba(255,255,255,0.95); padding: 0.75rem 1.5rem; 
+                                 border-radius: 12px; font-size: 1.5rem; font-weight: bold;">🏆 0</div>
+          <div id="lives" style="background: rgba(255,255,255,0.95); padding: 0.75rem 1.5rem; 
+                                 border-radius: 12px; font-size: 1.5rem; font-weight: bold;">❤️ 3</div>
+          <div id="timer" style="background: rgba(255,255,255,0.95); padding: 0.75rem 1.5rem; 
+                                 border-radius: 12px; font-size: 1.5rem; font-weight: bold;">
             ⏱️ ${levels[state.level-1].duration}s
           </div>
         </div>
         <div id="mouthIndicator" class="mouth-indicator">😐</div>
         <div style="position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); 
-                    background: rgba(0,0,0,0.9); color: white; padding: 1rem 2rem; 
-                    border-radius: 10px; font-size: 1.3rem; font-weight: bold; z-index: 50;">
-          😮 อ้าปาก!
+                    background: rgba(0,0,0,0.9); color: white; padding: 1.2rem 2.5rem; 
+                    border-radius: 12px; font-size: 1.5rem; font-weight: bold; z-index: 50;">
+          😮 อ้าปาก "อ๊าาาา"!
         </div>
       </div>
     `;
@@ -516,44 +489,44 @@ function render() {
     const total = state.healthyCount + state.junkCount || 1;
     const ratio = state.healthyCount / total;
     const emoji = ratio > 0.7 ? '💪😊' : ratio > 0.4 ? '😐' : '😰';
-    const msg = ratio > 0.7 ? 'เยี่ยม!' : ratio > 0.4 ? 'พอใช้' : 'ลองใหม่';
+    const msg = ratio > 0.7 ? 'สุขภาพดีมาก!' : ratio > 0.4 ? 'พอใช้ได้' : 'ควรดูแลสุขภาพ';
     
     app.innerHTML = `
       <div style="background: linear-gradient(135deg, #667eea, #764ba2); 
                   width: 100vw; height: 100vh; display: flex; align-items: center; 
-                  justify-content: center; padding: 1.5rem; overflow-y: auto;">
-        <div style="background: white; border-radius: 20px; padding: 2rem; 
-                    max-width: 500px; text-align: center;">
-          <div style="font-size: 5rem;" class="pulse">${emoji}</div>
-          <h2 style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">จบเกม!</h2>
-          <h3 style="font-size: 1.5rem; color: #10b981; margin-bottom: 1.5rem;">${msg}</h3>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1.5rem;">
-            <div style="background: rgba(102,126,234,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🏆</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.score}</div>
-              <div style="font-size: 0.9rem;">คะแนน</div>
+                  justify-content: center; padding: 2rem; overflow-y: auto;">
+        <div style="background: white; border-radius: 24px; padding: 3rem; 
+                    max-width: 600px; text-align: center;">
+          <div style="font-size: 6rem; margin-bottom: 1rem;" class="pulse">${emoji}</div>
+          <h2 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 0.5rem;">เกมจบแล้ว!</h2>
+          <h3 style="font-size: 1.8rem; color: #10b981; margin-bottom: 2rem;">${msg}</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+            <div style="background: rgba(102,126,234,0.2); padding: 1.5rem; border-radius: 12px;">
+              <div style="font-size: 3rem;">🏆</div>
+              <div style="font-size: 2rem; font-weight: bold;">${state.score}</div>
+              <div>คะแนนรวม</div>
             </div>
-            <div style="background: rgba(16,185,129,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🍎</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.healthyCount}</div>
-              <div style="font-size: 0.9rem;">อาหารดี</div>
+            <div style="background: rgba(16,185,129,0.2); padding: 1.5rem; border-radius: 12px;">
+              <div style="font-size: 3rem;">🍎</div>
+              <div style="font-size: 2rem; font-weight: bold;">${state.healthyCount}</div>
+              <div>อาหารดี</div>
             </div>
-            <div style="background: rgba(245,158,11,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">🍔</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${state.junkCount}</div>
-              <div style="font-size: 0.9rem;">ขยะ</div>
+            <div style="background: rgba(245,158,11,0.2); padding: 1.5rem; border-radius: 12px;">
+              <div style="font-size: 3rem;">🍔</div>
+              <div style="font-size: 2rem; font-weight: bold;">${state.junkCount}</div>
+              <div>อาหารขยะ</div>
             </div>
-            <div style="background: rgba(139,92,246,0.15); padding: 1rem; border-radius: 10px;">
-              <div style="font-size: 2.5rem;">📊</div>
-              <div style="font-size: 1.5rem; font-weight: bold;">${Math.round(ratio*100)}%</div>
-              <div style="font-size: 0.9rem;">ดี</div>
+            <div style="background: rgba(139,92,246,0.2); padding: 1.5rem; border-radius: 12px;">
+              <div style="font-size: 3rem;">📊</div>
+              <div style="font-size: 2rem; font-weight: bold;">${Math.round(ratio*100)}%</div>
+              <div>อาหารดี</div>
             </div>
           </div>
           <button onclick="state.screen='menu'; render();" 
-            style="width: 100%; padding: 1rem 2rem; font-size: 1.3rem; font-weight: bold; 
+            style="width: 100%; padding: 1rem 2rem; font-size: 1.5rem; font-weight: bold; 
                    background: linear-gradient(135deg, #10b981, #059669); color: white; 
-                   border: none; border-radius: 10px; cursor: pointer;">
-            🏠 เมนู
+                   border: none; border-radius: 12px; cursor: pointer;">
+            🏠 กลับเมนู
           </button>
         </div>
       </div>
