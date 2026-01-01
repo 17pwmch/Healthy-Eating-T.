@@ -140,6 +140,10 @@ async function setupCamera() {
     removeLoadingMessage();
     detectMouth();
     
+    // เริ่มเกมทันทีที่ model พร้อม
+    spawnFood();
+    startTimer();
+    
   } catch (e) {
     console.error('❌ Error:', e);
     state.loading = false;
@@ -302,8 +306,9 @@ function catchFood(item, el) {
     state.score += 10;
     state.healthyCount++;
   } else {
-    effect.textContent = '⭐';
-    state.score += 5;
+    // อาหารขยะติด -5 คะแนน
+    effect.textContent = '💔';
+    state.score -= 5;
     state.junkCount++;
   }
   
@@ -327,12 +332,6 @@ function startGame(level) {
             mouthOpen: false, faceDetected: false, modelLoaded: false };
   render();
   setupCamera();
-  setTimeout(() => {
-    if (state.gameActive && state.modelLoaded) {
-      spawnFood();
-      startTimer();
-    }
-  }, 3000);
 }
 
 function spawnFood() {
@@ -447,7 +446,7 @@ function render() {
             <p style="margin: 0.5rem 0;">📹 กล้องเป็นพื้นหลัง</p>
             <p style="margin: 0.5rem 0;">😐 วงกลมแดง = ปากปิด</p>
             <p style="margin: 0.5rem 0;">😮 วงกลมเขียวใหญ่ = พร้อมจับ</p>
-            <p style="margin: 0.5rem 0;">🍎 อาหารดี +10 | 🍔 ขยะ +5 | 💣 -1 ชีวิต</p>
+            <p style="margin: 0.5rem 0;">🍎 อาหารดี +10 | 🍔 ขยะ -5 | 💣 -1 ชีวิต</p>
           </div>
           ${levels.map((l, i) => `
             <button onclick="startGame(${i+1})" 
@@ -481,7 +480,7 @@ function render() {
         <div style="position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); 
                     background: rgba(0,0,0,0.9); color: white; padding: 1.2rem 2.5rem; 
                     border-radius: 12px; font-size: 1.5rem; font-weight: bold; z-index: 50;">
-          😮 อ้าปาก "อ๊าาาา"!
+          😮 อ้าปาก "อ๊าaaaา"!
         </div>
       </div>
     `;
