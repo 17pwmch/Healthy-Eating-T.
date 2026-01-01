@@ -370,7 +370,7 @@ function spawnFood() {
     state.fallingItems = state.fallingItems.filter(i => i.id !== item.id);
   }, lvl.speed * 1000);
   
-  setTimeout(() => spawnFood(), 1800);
+  setTimeout(() => spawnFood(), 1000);
 }
 
 function startTimer() {
@@ -472,7 +472,7 @@ function render() {
         <div style="position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); 
                     background: rgba(0,0,0,0.9); color: white; padding: 1.2rem 2.5rem; 
                     border-radius: 12px; font-size: 1.5rem; font-weight: bold; z-index: 50;">
-          😮 อ้าปาก "อ๊าaaaา"!
+          😮 อ้าปากนะจ๊ะหนูๆ
         </div>
       </div>
     `;
